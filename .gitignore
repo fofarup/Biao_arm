@@ -1,0 +1,58 @@
+# Keil build outputs and per-user state
+MDK-ARM/Biao_arm/
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.scvd
+MDK-ARM/*.lst
+
+# STM32CubeMX temporary files
+*.bak
+*.tmp
+
+# Unused vendor examples and libraries
+Drivers/CMSIS/Core/
+Drivers/CMSIS/Core_A/
+Drivers/CMSIS/DAP/
+Drivers/CMSIS/Documentation/
+Drivers/CMSIS/DSP/
+Drivers/CMSIS/NN/
+Drivers/CMSIS/RTOS/
+Drivers/CMSIS/RTOS2/
+Drivers/CMSIS/Device/ST/STM32F4xx/Source/
+
+# Only STM32F407 device headers are required by this target
+Drivers/CMSIS/Device/ST/STM32F4xx/Include/*
+!Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f4xx.h
+!Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f407xx.h
+!Drivers/CMSIS/Device/ST/STM32F4xx/Include/system_stm32f4xx.h
+
+# Only HAL source files referenced by the Keil project are versioned
+Drivers/STM32F4xx_HAL_Driver/Src/*
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ramfunc.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
+
+# The project uses FreeRTOS heap_4
+Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/*
+!Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
+
+# Local review files
+tmp/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
