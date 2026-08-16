@@ -845,14 +845,14 @@
               <FilePath>..\Fun\arm_kinematics.h</FilePath>
             </File>
             <File>
-              <FileName>Emm_V5.c</FileName>
+              <FileName>X_V2.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Fun\Emm_V5.c</FilePath>
+              <FilePath>..\Fun\X_V2.c</FilePath>
             </File>
             <File>
-              <FileName>Emm_V5.h</FileName>
+              <FileName>X_V2.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\Fun\Emm_V5.h</FilePath>
+              <FilePath>..\Fun\X_V2.h</FilePath>
             </File>
             <File>
               <FileName>zdt_can.h</FileName>

@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "Emm_V5.h"
+#include "X_V2.h"
 #include "zdt_can.h"
 /* USER CODE END Includes */
 
@@ -128,10 +128,17 @@ void StartDefaultTask(void *argument)
      */
     osDelay(2000);
 
+    /* Clear a latched stall/over-current protection state before enabling. */
+    if (X_V2_Reset_Clog_Pro(1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    osDelay(10);
+
     /*
      * 地址1，使能，不使用同步缓存。
      */
-    if (Emm_V5_En_Control(1, true, false) != HAL_OK)
+    if (X_V2_En_Control(1, true, false) != HAL_OK)
     {
         Error_Handler();
     }
@@ -147,13 +154,15 @@ void StartDefaultTask(void *argument)
      * 相对位置
      * 不使用同步缓存
      */
-    if (Emm_V5_Pos_Control(
+    /* X protocol: 200 RPM, 200/100 RPM/s, relative 360 degree move. */
+    if (X_V2_Traj_Pos_Control(
             1,
-            EMM_V5_DIR_CW,
+            X_V2_DIR_CW,
             200,
-            10,
-            3200,
-            EMM_V5_POS_RELATIVE_TO_TARGET,
+            100,
+            200.0f,
+            360.0f,
+            X_V2_POS_RELATIVE_TO_TARGET,
             false) != HAL_OK)
     {
         Error_Handler();
