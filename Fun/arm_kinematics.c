@@ -4,59 +4,83 @@
 #include <stddef.h>
 #include <string.h>
 
-#define ARM_PI_F                (3.14159265358979323846f)
-#define ARM_RAD_TO_DEG_F        (180.0f / ARM_PI_F)
-/* 用于容忍浮点计算在可达边界处产生的微小舍入误差。 */
-#define ARM_NUMERIC_EPSILON_F   (1.0e-5f)
+#define ARM_PI_F                 (3.14159265358979323846f)
+#define ARM_RAD_TO_DEG_F         (180.0f / ARM_PI_F)
+#define ARM_DEG_TO_RAD_F         (ARM_PI_F / 180.0f)
+#define ARM_NUMERIC_EPSILON_F    (1.0e-5f)
+#define ARM_LIMIT_EPSILON_DEG_F  (1.0e-3f)
 
 static int ArmIk_IsFinite(float value)
 {
     return isfinite(value) ? 1 : 0;
 }
 
-static int32_t ArmIk_RoundToInt32(float value)
+static int ArmIk_LimitConfigIsValid(const ArmJointLimit *limit)
 {
-    /* 将浮点脉冲四舍五入为驱动器使用的整数脉冲。 */
-    return (int32_t)lroundf(value);
-}
-
-static int ArmIk_DirectionIndex(ArmDirection direction)
-{
-    /* 将用户使用的方向编号 1~4 转换为数组下标 0~3。 */
-    int value = (int)direction;
-    if ((value < (int)ARM_DIRECTION_1) ||
-        (value > (int)ARM_DIRECTION_4))
-    {
-        return -1;
-    }
-    return value - 1;
-}
-
-static int ArmIk_ConfigIsValid(const ArmIkConfig *config)
-{
-    /* 在进入三角函数前检查配置，避免除零、NaN 或无意义的机械参数。 */
-    if ((config->oa_mm <= 0.0f) ||
-        (config->ab_mm <= 0.0f) ||
-        (config->bc_mm <= 0.0f) ||
-        (config->cd1_mm < 0.0f) ||
-        (config->gamma_min_deg < 0.0f) ||
-        (config->gamma_min_deg >= 180.0f) ||
-        (config->motor1_ratio <= 0.0f) ||
-        (config->motor2_ratio <= 0.0f) ||
-        (config->motor3_gamma_ratio <= 0.0f) ||
-        (config->pulses_per_revolution == 0U))
+    if ((limit->min_enabled > 1U) || (limit->max_enabled > 1U) ||
+        !ArmIk_IsFinite(limit->min_deg) ||
+        !ArmIk_IsFinite(limit->max_deg))
     {
         return 0;
     }
 
-    return ArmIk_IsFinite(config->oa_mm) &&
-           ArmIk_IsFinite(config->ab_mm) &&
-           ArmIk_IsFinite(config->bc_mm) &&
-           ArmIk_IsFinite(config->cd1_mm) &&
-           ArmIk_IsFinite(config->gamma_min_deg) &&
-           ArmIk_IsFinite(config->motor1_ratio) &&
-           ArmIk_IsFinite(config->motor2_ratio) &&
-           ArmIk_IsFinite(config->motor3_gamma_ratio);
+    if ((limit->min_enabled != 0U) &&
+        (limit->max_enabled != 0U) &&
+        (limit->min_deg > limit->max_deg))
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int ArmIk_ConfigIsValid(const ArmIkConfig *config)
+{
+    if ((config == NULL) ||
+        !ArmIk_IsFinite(config->oa_mm) ||
+        !ArmIk_IsFinite(config->ab_mm) ||
+        !ArmIk_IsFinite(config->bc_mm) ||
+        !ArmIk_IsFinite(config->cd1_mm) ||
+        (config->oa_mm <= 0.0f) ||
+        (config->ab_mm <= 0.0f) ||
+        (config->bc_mm <= 0.0f) ||
+        (config->cd1_mm < 0.0f))
+    {
+        return 0;
+    }
+
+    return ArmIk_LimitConfigIsValid(&config->alpha_limit) &&
+           ArmIk_LimitConfigIsValid(&config->beta_limit) &&
+           ArmIk_LimitConfigIsValid(&config->gamma_limit);
+}
+
+static int ArmIk_JointWithinLimit(float value, const ArmJointLimit *limit)
+{
+    if ((limit->min_enabled != 0U) &&
+        (value < (limit->min_deg - ARM_LIMIT_EPSILON_DEG_F)))
+    {
+        return 0;
+    }
+    if ((limit->max_enabled != 0U) &&
+        (value > (limit->max_deg + ARM_LIMIT_EPSILON_DEG_F)))
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+static float ArmIk_NormalizeRadians(float angle)
+{
+    while (angle > ARM_PI_F)
+    {
+        angle -= 2.0f * ARM_PI_F;
+    }
+    while (angle <= -ARM_PI_F)
+    {
+        angle += 2.0f * ARM_PI_F;
+    }
+    return angle;
 }
 
 void ArmIk_LoadDefaultConfig(ArmIkConfig *config)
@@ -66,83 +90,66 @@ void ArmIk_LoadDefaultConfig(ArmIkConfig *config)
         return;
     }
 
-    /* 连杆尺寸完全取自原 Python 程序，后续实测后可在此统一修正。 */
     memset(config, 0, sizeof(*config));
     config->oa_mm = 150.1f;
     config->ab_mm = 150.0f;
     config->bc_mm = 240.0f;
     config->cd1_mm = 85.0f;
-    config->gamma_min_deg = 12.02f;
 
-    /* 传动比和每圈脉冲数共同决定“关节角度 -> 电机脉冲”的换算。 */
-    config->motor1_ratio = 26.25f;
-    config->motor2_ratio = 4.5f;
-    config->motor3_gamma_ratio = 13.5f;
-    config->pulses_per_revolution = 3200U;
+    /* Alpha 的真实机械上下限尚未标定，本轮不擅自启用。 */
+    config->alpha_limit.min_deg = -180.0f;
+    config->alpha_limit.max_deg = 180.0f;
 
-    /* 原程序仅给出方向 1~3 的底座偏移，方向 4 必须标定后再启用。 */
-    config->direction_offset_pulse[0] = 0;
-    config->direction_offset_pulse[1] = -42000;
-    config->direction_offset_pulse[2] = -21000;
-    config->direction_offset_pulse[3] = 0;
-    config->direction_offset_valid[0] = 1U;
-    config->direction_offset_valid[1] = 1U;
-    config->direction_offset_valid[2] = 1U;
-    config->direction_offset_valid[3] = 0U;
+    /* 原机构明确禁止大臂低于零位；上限仍等待实机标定。 */
+    config->beta_limit.min_deg = 0.0f;
+    config->beta_limit.max_deg = 180.0f;
+    config->beta_limit.min_enabled = 1U;
+
+    /* 已确认的 Gamma 机械最小内角；不得再用自动钳制掩盖超限。 */
+    config->gamma_limit.min_deg = 12.02;
+    config->gamma_limit.max_deg = 180.0f;
+    config->gamma_limit.min_enabled = 1U;
+    config->gamma_limit.max_enabled = 1U;
 }
 
-ArmIkStatus ArmIk_SetDirectionOffset(ArmIkConfig *config,
-                                     ArmDirection direction,
-                                     int32_t offset_pulse)
+ArmIkStatus ArmIk_ValidateJoints(const ArmIkConfig *config,
+                                 const ArmJointAngles *joints)
 {
-    int index;
-    if (config == NULL)
+    if ((config == NULL) || (joints == NULL))
     {
         return ARM_IK_NULL_POINTER;
     }
-
-    index = ArmIk_DirectionIndex(direction);
-    if (index < 0)
+    if (!ArmIk_ConfigIsValid(config))
     {
-        return ARM_IK_INVALID_DIRECTION;
+        return ARM_IK_INVALID_CONFIG;
+    }
+    if (!ArmIk_IsFinite(joints->alpha_deg) ||
+        !ArmIk_IsFinite(joints->beta_deg) ||
+        !ArmIk_IsFinite(joints->gamma_deg))
+    {
+        return ARM_IK_NUMERIC_ERROR;
     }
 
-    config->direction_offset_pulse[index] = offset_pulse;
-    config->direction_offset_valid[index] = 1U;
+    if (!ArmIk_JointWithinLimit(joints->alpha_deg,
+                                &config->alpha_limit) ||
+        !ArmIk_JointWithinLimit(joints->beta_deg,
+                                &config->beta_limit) ||
+        !ArmIk_JointWithinLimit(joints->gamma_deg,
+                                &config->gamma_limit))
+    {
+        return ARM_IK_JOINT_LIMIT;
+    }
+
     return ARM_IK_OK;
 }
 
-ArmIkStatus ArmIk_ClearDirectionOffset(ArmIkConfig *config,
-                                       ArmDirection direction)
+static ArmIkStatus ArmIk_SolveCandidate(const ArmIkConfig *config,
+                                        float signed_radial_mm,
+                                        float wrist_z_mm,
+                                        float alpha_rad,
+                                        ArmJointAngles *result)
 {
-    int index;
-    if (config == NULL)
-    {
-        return ARM_IK_NULL_POINTER;
-    }
-
-    index = ArmIk_DirectionIndex(direction);
-    if (index < 0)
-    {
-        return ARM_IK_INVALID_DIRECTION;
-    }
-
-    config->direction_offset_valid[index] = 0U;
-    return ARM_IK_OK;
-}
-
-ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
-                        ArmDirection direction,
-                        float x_mm,
-                        float y_mm,
-                        float z_mm,
-                        ArmIkResult *result)
-{
-    int direction_index;
-    float alpha;
-    float radial_mm;
     float wrist_radial_mm;
-    float wrist_z_mm;
     float ac_mm;
     float min_reach_mm;
     float max_reach_mm;
@@ -152,10 +159,74 @@ ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
     float b1;
     float b2;
     float beta;
-    float alpha_deg;
-    float beta_deg;
-    float gamma_deg;
-    float pulse_scale;
+
+    wrist_radial_mm = signed_radial_mm - config->cd1_mm;
+    ac_mm = hypotf(wrist_radial_mm, wrist_z_mm);
+    min_reach_mm = fabsf(config->bc_mm - config->ab_mm);
+    max_reach_mm = config->ab_mm + config->bc_mm;
+
+    if (ac_mm < (min_reach_mm - ARM_NUMERIC_EPSILON_F))
+    {
+        return ARM_IK_TARGET_TOO_CLOSE;
+    }
+    if (ac_mm > (max_reach_mm + ARM_NUMERIC_EPSILON_F))
+    {
+        return ARM_IK_TARGET_TOO_FAR;
+    }
+    if (ac_mm <= ARM_NUMERIC_EPSILON_F)
+    {
+        return ARM_IK_NUMERIC_ERROR;
+    }
+
+    cos_gamma = ((config->ab_mm * config->ab_mm) +
+                 (config->bc_mm * config->bc_mm) - (ac_mm * ac_mm)) /
+                (2.0f * config->ab_mm * config->bc_mm);
+    cos_b1 = ((config->ab_mm * config->ab_mm) + (ac_mm * ac_mm) -
+              (config->bc_mm * config->bc_mm)) /
+             (2.0f * config->ab_mm * ac_mm);
+
+    if (cos_gamma > 1.0f) cos_gamma = 1.0f;
+    if (cos_gamma < -1.0f) cos_gamma = -1.0f;
+    if (cos_b1 > 1.0f) cos_b1 = 1.0f;
+    if (cos_b1 < -1.0f) cos_b1 = -1.0f;
+
+    gamma = acosf(cos_gamma);
+    b1 = acosf(cos_b1);
+    b2 = (ARM_PI_F * 0.5f) +
+         atan2f(wrist_z_mm, wrist_radial_mm);
+    beta = (ARM_PI_F * 1.5f) - (b1 + b2);
+
+    result->alpha_deg = ArmIk_NormalizeRadians(alpha_rad) * ARM_RAD_TO_DEG_F;
+    result->beta_deg = beta * ARM_RAD_TO_DEG_F;
+    result->gamma_deg = gamma * ARM_RAD_TO_DEG_F;
+
+    /* 超限只返回错误，绝不修改或钳制求出的关节角。 */
+    return ArmIk_ValidateJoints(config, result);
+}
+
+ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
+                        float x_mm,
+                        float y_mm,
+                        float z_mm,
+                        ArmJointAngles *result)
+{
+    return ArmIk_SolveBranch(config,
+                             x_mm,
+                             y_mm,
+                             z_mm,
+                             ARM_IK_RADIAL_POSITIVE,
+                             result);
+}
+
+ArmIkStatus ArmIk_SolveBranch(const ArmIkConfig *config,
+                              float x_mm,
+                              float y_mm,
+                              float z_mm,
+                              ArmIkRadialBranch branch,
+                              ArmJointAngles *result)
+{
+    float radial_mm;
+    float alpha_rad;
 
     if ((config == NULL) || (result == NULL))
     {
@@ -170,121 +241,68 @@ ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
     {
         return ARM_IK_NUMERIC_ERROR;
     }
-
-    direction_index = ArmIk_DirectionIndex(direction);
-    if (direction_index < 0)
+    if ((branch != ARM_IK_RADIAL_POSITIVE) &&
+        (branch != ARM_IK_RADIAL_NEGATIVE))
     {
-        return ARM_IK_INVALID_DIRECTION;
-    }
-    if (config->direction_offset_valid[direction_index] == 0U)
-    {
-        return ARM_IK_DIRECTION_NOT_CONFIGURED;
+        return ARM_IK_INVALID_CONFIG;
     }
 
-    /*
-     * Alpha 为底座绕 Z 轴的旋转角。
-     * 使用 atan2f(X,Y) 可正确区分象限，也避免原 atan(X/Y) 在 Y=0 时除零。
-     */
-    alpha = atan2f(x_mm, y_mm);
-
-    /*
-     * 将三维目标投影到机械臂所在的竖直平面：
-     * radial_mm       为目标到 Z 轴的水平距离；
-     * wrist_radial_mm 为扣除末端 CD1 后，腕部相对肩部的水平距离；
-     * wrist_z_mm      为腕部相对肩部高度 OA 的竖直距离；
-     * ac_mm           为肩部 A 到腕部 C 的直线距离。
-     */
     radial_mm = hypotf(x_mm, y_mm);
-    wrist_radial_mm = radial_mm - config->cd1_mm;
-    wrist_z_mm = z_mm - config->oa_mm;
-    ac_mm = hypotf(wrist_radial_mm, wrist_z_mm);
+    alpha_rad = atan2f(x_mm, y_mm);
+    if (branch == ARM_IK_RADIAL_NEGATIVE)
+    {
+        radial_mm = -radial_mm;
+        alpha_rad = ArmIk_NormalizeRadians(alpha_rad - ARM_PI_F);
+    }
+    return ArmIk_SolveCandidate(config,
+                                radial_mm,
+                                z_mm - config->oa_mm,
+                                alpha_rad,
+                                result);
+}
 
-    /* 两连杆机构的可达条件：|BC-AB| <= AC <= AB+BC。 */
-    min_reach_mm = fabsf(config->bc_mm - config->ab_mm);
-    max_reach_mm = config->ab_mm + config->bc_mm;
-    if (ac_mm < (min_reach_mm - ARM_NUMERIC_EPSILON_F))
+ArmIkStatus ArmIk_Forward(const ArmIkConfig *config,
+                          const ArmJointAngles *joints,
+                          ArmCartesianPosition *result)
+{
+    ArmIkStatus joint_status;
+    float alpha;
+    float beta;
+    float gamma;
+    float wrist_radial_mm;
+    float wrist_z_mm;
+    float radial_mm;
+
+    if ((config == NULL) || (joints == NULL) || (result == NULL))
     {
-        return ARM_IK_TARGET_TOO_CLOSE;
+        return ARM_IK_NULL_POINTER;
     }
-    if (ac_mm > (max_reach_mm + ARM_NUMERIC_EPSILON_F))
+
+    joint_status = ArmIk_ValidateJoints(config, joints);
+    if (joint_status != ARM_IK_OK)
     {
-        return ARM_IK_TARGET_TOO_FAR;
+        return joint_status;
     }
-    if (ac_mm <= ARM_NUMERIC_EPSILON_F)
+
+    alpha = joints->alpha_deg * ARM_DEG_TO_RAD_F;
+    beta = joints->beta_deg * ARM_DEG_TO_RAD_F;
+    gamma = joints->gamma_deg * ARM_DEG_TO_RAD_F;
+
+    wrist_radial_mm = (-config->ab_mm * cosf(beta)) +
+                      (config->bc_mm * cosf(gamma - beta));
+    wrist_z_mm = (config->ab_mm * sinf(beta)) +
+                 (config->bc_mm * sinf(gamma - beta));
+    radial_mm = wrist_radial_mm + config->cd1_mm;
+
+    result->x_mm = radial_mm * sinf(alpha);
+    result->y_mm = radial_mm * cosf(alpha);
+    result->z_mm = config->oa_mm + wrist_z_mm;
+
+    if (!ArmIk_IsFinite(result->x_mm) ||
+        !ArmIk_IsFinite(result->y_mm) ||
+        !ArmIk_IsFinite(result->z_mm))
     {
         return ARM_IK_NUMERIC_ERROR;
-    }
-
-    /*
-     * 根据余弦定理求肘部角 Gamma 和三角形内角 B1：
-     * cos(Gamma) = (AB^2 + BC^2 - AC^2) / (2*AB*BC)
-     * cos(B1)    = (AB^2 + AC^2 - BC^2) / (2*AB*AC)
-     */
-    cos_gamma = ((config->ab_mm * config->ab_mm) +
-                 (config->bc_mm * config->bc_mm) - (ac_mm * ac_mm)) /
-                (2.0f * config->ab_mm * config->bc_mm);
-    cos_b1 = ((config->ab_mm * config->ab_mm) + (ac_mm * ac_mm) -
-              (config->bc_mm * config->bc_mm)) /
-             (2.0f * config->ab_mm * ac_mm);
-
-    /* acosf 只接受 [-1,1]，在可达边界处吸收浮点舍入造成的微小越界。 */
-    if (cos_gamma > 1.0f) cos_gamma = 1.0f;
-    if (cos_gamma < -1.0f) cos_gamma = -1.0f;
-    if (cos_b1 > 1.0f) cos_b1 = 1.0f;
-    if (cos_b1 < -1.0f) cos_b1 = -1.0f;
-
-    gamma = acosf(cos_gamma);
-    b1 = acosf(cos_b1);
-
-    /*
-     * B2 表示 AC 连线相对机构基准方向的角度；
-     * Beta 为第二关节最终目标角，公式保持与 robocal.py 一致。
-     */
-    b2 = (ARM_PI_F * 0.5f) + atan2f(wrist_z_mm, wrist_radial_mm);
-    beta = (ARM_PI_F * 1.5f) - (b1 + b2);
-
-    alpha_deg = alpha * ARM_RAD_TO_DEG_F;
-    beta_deg = beta * ARM_RAD_TO_DEG_F;
-    gamma_deg = gamma * ARM_RAD_TO_DEG_F;
-    if (gamma_deg < config->gamma_min_deg)
-    {
-        gamma_deg = config->gamma_min_deg;
-    }
-
-    if (!ArmIk_IsFinite(alpha_deg) || !ArmIk_IsFinite(beta_deg) ||
-        !ArmIk_IsFinite(gamma_deg))
-    {
-        return ARM_IK_NUMERIC_ERROR;
-    }
-
-    /* 每度对应的基础脉冲数，之后再乘各关节传动比。 */
-    pulse_scale = (float)config->pulses_per_revolution / 360.0f;
-
-    /* Motor1：底座角 Alpha 换算为脉冲，再叠加当前安装方向的零点偏移。 */
-    result->motor1_pulse = ArmIk_RoundToInt32(config->motor1_ratio *
-                                               alpha_deg * pulse_scale) +
-                           config->direction_offset_pulse[direction_index];
-    /* Motor2：由肩关节角 Beta 直接换算。 */
-    result->motor2_pulse = ArmIk_RoundToInt32(config->motor2_ratio *
-                                               beta_deg * pulse_scale);
-
-    /*
-     * Motor3 存在与 Motor2 的机械耦合，因此同时包含 Gamma 项和 Beta 补偿项。
-     * 该公式按原 Python 程序保留，输出允许为负数。
-     */
-    result->motor3_pulse = ArmIk_RoundToInt32(
-        ((config->motor3_gamma_ratio *
-          (config->gamma_min_deg - gamma_deg)) +
-         (config->motor2_ratio * beta_deg)) * pulse_scale);
-
-    result->alpha_deg = alpha_deg;
-    result->beta_deg = beta_deg;
-    result->gamma_deg = gamma_deg;
-
-    /* 原机构不允许 Motor2 目标脉冲为负，调用方收到错误后不得下发电机命令。 */
-    if (result->motor2_pulse < 0)
-    {
-        return ARM_IK_MOTOR2_NEGATIVE;
     }
 
     return ARM_IK_OK;
@@ -297,12 +315,10 @@ const char *ArmIk_StatusString(ArmIkStatus status)
         case ARM_IK_OK: return "OK";
         case ARM_IK_NULL_POINTER: return "null pointer";
         case ARM_IK_INVALID_CONFIG: return "invalid configuration";
-        case ARM_IK_INVALID_DIRECTION: return "invalid direction";
-        case ARM_IK_DIRECTION_NOT_CONFIGURED: return "direction not configured";
         case ARM_IK_TARGET_TOO_CLOSE: return "target too close";
         case ARM_IK_TARGET_TOO_FAR: return "target too far";
+        case ARM_IK_JOINT_LIMIT: return "joint limit";
         case ARM_IK_NUMERIC_ERROR: return "numeric error";
-        case ARM_IK_MOTOR2_NEGATIVE: return "motor 2 target is negative";
         default: return "unknown status";
     }
 }

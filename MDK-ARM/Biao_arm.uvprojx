@@ -138,7 +138,7 @@
           </Flash1>
           <bUseTDR>1</bUseTDR>
           <Flash2>BIN\UL2V8M.DLL</Flash2>
-          <Flash3></Flash3>
+          <Flash3>"" ()</Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Fun;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Fun;../Task;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -845,6 +845,26 @@
               <FilePath>..\Fun\arm_kinematics.h</FilePath>
             </File>
             <File>
+              <FileName>arm_motion.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Fun\arm_motion.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_motion.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Fun\arm_motion.h</FilePath>
+            </File>
+            <File>
+              <FileName>arm_motor_mapping.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Fun\arm_motor_mapping.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_motor_mapping.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Fun\arm_motor_mapping.h</FilePath>
+            </File>
+            <File>
               <FileName>X_V2.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Fun\X_V2.c</FilePath>
@@ -863,6 +883,21 @@
               <FileName>zdt_can.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Fun\zdt_can.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Task</GroupName>
+          <Files>
+            <File>
+              <FileName>arm_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Task\arm_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Task\arm_task.h</FilePath>
             </File>
           </Files>
         </Group>

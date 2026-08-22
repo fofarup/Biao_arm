@@ -25,8 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "X_V2.h"
-#include "zdt_can.h"
+#include "arm_task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -115,74 +114,11 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  /* Infinite loop */
-		ZDT_CanRxFrame_t rx_frame;
-
-    if (ZDT_CAN_Init() != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    /*
-     * 等待电机驱动器上电初始化。
-     */
-    osDelay(2000);
-
-    /* Clear a latched stall/over-current protection state before enabling. */
-    if (X_V2_Reset_Clog_Pro(1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    osDelay(10);
-
-    /*
-     * 地址1，使能，不使用同步缓存。
-     */
-    if (X_V2_En_Control(1, true, false) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    osDelay(100);
-
-    /*
-     * 地址1
-     * CW
-     * 200 RPM
-     * 加速度10
-     * 3200脉冲
-     * 相对位置
-     * 不使用同步缓存
-     */
-    /* X protocol: 200 RPM, 200/100 RPM/s, relative 360 degree move. */
-    if (X_V2_Traj_Pos_Control(
-            1,
-            X_V2_DIR_CW,
-            200,
-            100,
-            200.0f,
-            360.0f,
-            X_V2_POS_RELATIVE_TO_TARGET,
-            false) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
+    (void)argument;
+    ArmTask_Run();
     for (;;)
     {
-        /*
-         * 接收电机返回帧。
-         * 这里先保存和观察，不立即假设返回格式。
-         */
-        if (ZDT_CAN_GetRx(
-                &rx_frame,
-                osWaitForever) == osOK)
-        {
-            /*
-             * 在这里给rx_frame打断点，
-             * 观察ID、DLC和Data。
-             */
-        }
+        osDelay(1000U);
     }
   /* USER CODE END StartDefaultTask */
 }

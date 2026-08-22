@@ -7,30 +7,50 @@ extern "C" {
 
 #include <stdint.h>
 
-/*
- * 机械臂安装方向。
- * 不同方向只影响底座电机（Motor1）的零点偏移，不改变连杆逆解公式。
- */
 typedef enum
 {
-    ARM_DIRECTION_1 = 1,
-    ARM_DIRECTION_2 = 2,
-    ARM_DIRECTION_3 = 3,
-    ARM_DIRECTION_4 = 4
-} ArmDirection;
-
-typedef enum
-{
-    ARM_IK_OK = 0,                       /* 解算成功 */
-    ARM_IK_NULL_POINTER,                 /* 传入了空指针 */
-    ARM_IK_INVALID_CONFIG,               /* 机械尺寸或传动参数非法 */
-    ARM_IK_INVALID_DIRECTION,            /* direction 不在 1~4 范围内 */
-    ARM_IK_DIRECTION_NOT_CONFIGURED,     /* 当前方向的底座偏移尚未标定 */
-    ARM_IK_TARGET_TOO_CLOSE,             /* 目标点在机械臂最小可达半径以内 */
-    ARM_IK_TARGET_TOO_FAR,               /* 目标点超过机械臂最大可达半径 */
-    ARM_IK_NUMERIC_ERROR,                /* 输入为 NaN/Inf 或发生数值异常 */
-    ARM_IK_MOTOR2_NEGATIVE               /* Motor2 结果低于原机构允许的零点 */
+    ARM_IK_OK = 0,                   /* 解算成功 */
+    ARM_IK_NULL_POINTER,             /* 传入了空指针 */
+    ARM_IK_INVALID_CONFIG,           /* 几何参数或限位配置非法 */
+    ARM_IK_TARGET_TOO_CLOSE,         /* 目标点在几何最小可达半径以内 */
+    ARM_IK_TARGET_TOO_FAR,           /* 目标点超过几何最大可达半径 */
+    ARM_IK_JOINT_LIMIT,              /* 解存在，但至少一个关节超出机械限位 */
+    ARM_IK_NUMERIC_ERROR             /* 输入为 NaN/Inf 或发生数值异常 */
 } ArmIkStatus;
+
+/* 同一个 XYZ 可能对应底座两侧的不同姿态。 */
+typedef enum
+{
+    ARM_IK_RADIAL_POSITIVE = 0,
+    ARM_IK_RADIAL_NEGATIVE = 1
+} ArmIkRadialBranch;
+
+/* 机械关节角。Gamma 是几何内角 ABC，不是从零开始的电机角度。 */
+typedef struct
+{
+    float alpha_deg;
+    float beta_deg;
+    float gamma_deg;
+} ArmJointAngles;
+
+typedef struct
+{
+    float x_mm;
+    float y_mm;
+    float z_mm;
+} ArmCartesianPosition;
+
+/*
+ * 单个关节的机械限位。上下限可分别启用，未实测的限位不应擅自启用。
+ * 限位只属于关节/机构层，与电机 CW/CCW、减速比及 CAN 地址无关。
+ */
+typedef struct
+{
+    float min_deg;
+    float max_deg;
+    uint8_t min_enabled;
+    uint8_t max_enabled;
+} ArmJointLimit;
 
 typedef struct
 {
@@ -40,63 +60,40 @@ typedef struct
     float bc_mm;
     float cd1_mm;
 
-    /* Gamma 关节的机械最小角度，单位为度。 */
-    float gamma_min_deg;
-
-    /* 三个关节的传动比，以及电机旋转一圈对应的脉冲数。 */
-    float motor1_ratio;
-    float motor2_ratio;
-    float motor3_gamma_ratio;
-    uint32_t pulses_per_revolution;
-
-    /*
-     * 方向 1~4 对应的底座零点偏移，单位为有符号脉冲。
-     * valid 为 0 时禁止使用该方向，避免未标定时误动作。
-     */
-    int32_t direction_offset_pulse[4];
-    uint8_t direction_offset_valid[4];
+    ArmJointLimit alpha_limit;
+    ArmJointLimit beta_limit;
+    ArmJointLimit gamma_limit;
 } ArmIkConfig;
 
-typedef struct
-{
-    int32_t motor1_pulse;
-    int32_t motor2_pulse;
-    int32_t motor3_pulse;
-
-    /* 中间关节角，单位为度，便于串口调试和机械零点标定。 */
-    float alpha_deg;
-    float beta_deg;
-    float gamma_deg;
-} ArmIkResult;
-
-/* 装载与 robocal.py 一致的默认参数；方向 4 默认未标定。 */
+/* 装载当前已知的几何参数及机械限位。 */
 void ArmIk_LoadDefaultConfig(ArmIkConfig *config);
 
-/* 设置某个安装方向的底座零点偏移，同时将该方向标记为可用。 */
-ArmIkStatus ArmIk_SetDirectionOffset(ArmIkConfig *config,
-                                     ArmDirection direction,
-                                     int32_t offset_pulse);
-
-/* 将某个安装方向标记为不可用，防止未标定时误动作。 */
-ArmIkStatus ArmIk_ClearDirectionOffset(ArmIkConfig *config,
-                                       ArmDirection direction);
+/* 只检查关节角和机械限位，不进行电机映射，也不发送 CAN。 */
+ArmIkStatus ArmIk_ValidateJoints(const ArmIkConfig *config,
+                                 const ArmJointAngles *joints);
 
 /*
- * 机械臂逆运动学解算：末端笛卡尔坐标 -> 三个电机目标脉冲。
- *
- * 输入：x/y/z，单位 mm，坐标系与 robocal.py 相同：
- *       Z 为竖直方向；X、Y 位于底座水平面；Alpha = atan2(X, Y)。
- * 输出：相对于各电机已标定零点的有符号绝对目标脉冲。
- *
- * 注意：本函数只负责数学解算，不会发送 CAN 报文，也不会驱动电机；
- *       无 HAL 依赖、无动态内存、无阻塞延时，可在普通任务中直接调用。
+ * 末端 XYZ -> 关节角。默认选择正径向分支；任何关节超限均直接返回
+ * ARM_IK_JOINT_LIMIT，函数不会钳制关节角。
  */
 ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
-                        ArmDirection direction,
                         float x_mm,
                         float y_mm,
                         float z_mm,
-                        ArmIkResult *result);
+                        ArmJointAngles *result);
+
+/* 指定末端位于底座轴线的正径向或负径向分支。 */
+ArmIkStatus ArmIk_SolveBranch(const ArmIkConfig *config,
+                              float x_mm,
+                              float y_mm,
+                              float z_mm,
+                              ArmIkRadialBranch branch,
+                              ArmJointAngles *result);
+
+/* 关节角 -> 末端 XYZ，用于计算关节测试的预期末端位置。 */
+ArmIkStatus ArmIk_Forward(const ArmIkConfig *config,
+                          const ArmJointAngles *joints,
+                          ArmCartesianPosition *result);
 
 const char *ArmIk_StatusString(ArmIkStatus status);
 
