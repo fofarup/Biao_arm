@@ -22,6 +22,14 @@ static bool X_V2_PositionModeIsValid(X_V2_PositionMode_t mode)
            (mode == X_V2_POS_RELATIVE_TO_CURRENT);
 }
 
+static bool X_V2_InfoFunctionIsValid(uint8_t info_function)
+{
+    return (info_function == X_V2_INFO_REALTIME_SPEED) ||
+           (info_function == X_V2_INFO_REALTIME_POSITION) ||
+           (info_function == X_V2_INFO_POSITION_ERROR) ||
+           (info_function == X_V2_INFO_STATUS);
+}
+
 static bool X_V2_SpeedIsValid(float vel_rpm)
 {
     return (vel_rpm >= 0.0f) &&
@@ -46,6 +54,40 @@ static bool X_V2_Traj_Pos_CommandIsValid(
            X_V2_PositionModeIsValid(command->mode) &&
            X_V2_SpeedIsValid(command->vel_rpm) &&
            X_V2_PositionIsValid(command->pos_deg);
+}
+
+static bool X_V2_Vel_CommandIsValid(const X_V2_Vel_Command_t *command)
+{
+    if (command == NULL)
+    {
+        return false;
+    }
+
+    return X_V2_DirectionIsValid(command->dir) &&
+           X_V2_SpeedIsValid(command->vel_rpm);
+}
+
+static bool X_V2_Build_Vel_Command(const X_V2_Vel_Command_t *command,
+                                   uint8_t cmd[9])
+{
+    uint16_t vel_x10;
+
+    if ((cmd == NULL) || !X_V2_Vel_CommandIsValid(command))
+    {
+        return false;
+    }
+
+    vel_x10 = (uint16_t)(((double)command->vel_rpm * 10.0) + 0.5);
+    cmd[0] = command->addr;
+    cmd[1] = 0xF6U;
+    cmd[2] = (uint8_t)command->dir;
+    cmd[3] = (uint8_t)(command->acc_rpm_per_s >> 8);
+    cmd[4] = (uint8_t)(command->acc_rpm_per_s >> 0);
+    cmd[5] = (uint8_t)(vel_x10 >> 8);
+    cmd[6] = (uint8_t)(vel_x10 >> 0);
+    cmd[7] = (uint8_t)command->snF;
+    cmd[8] = X_V2_FRAME_END;
+    return true;
 }
 
 static bool X_V2_Build_Traj_Pos_Command(
@@ -110,25 +152,19 @@ HAL_StatusTypeDef X_V2_Vel_Control(uint8_t addr,
                                    float vel_rpm,
                                    bool snF)
 {
-    uint16_t vel_x10;
+    X_V2_Vel_Command_t command;
     uint8_t cmd[9];
 
-    if (!X_V2_DirectionIsValid(dir) || !X_V2_SpeedIsValid(vel_rpm))
+    command.addr = addr;
+    command.dir = dir;
+    command.acc_rpm_per_s = acc;
+    command.vel_rpm = vel_rpm;
+    command.snF = snF;
+
+    if (!X_V2_Build_Vel_Command(&command, cmd))
     {
         return HAL_ERROR;
     }
-
-    vel_x10 = (uint16_t)(vel_rpm * 10.0f);
-
-    cmd[0] = addr;
-    cmd[1] = 0xF6U;
-    cmd[2] = (uint8_t)dir;
-    cmd[3] = (uint8_t)(acc >> 8);
-    cmd[4] = (uint8_t)(acc >> 0);
-    cmd[5] = (uint8_t)(vel_x10 >> 8);
-    cmd[6] = (uint8_t)(vel_x10 >> 0);
-    cmd[7] = (uint8_t)snF;
-    cmd[8] = X_V2_FRAME_END;
 
     return can_SendCmd(cmd, (uint8_t)sizeof(cmd));
 }
@@ -239,6 +275,50 @@ HAL_StatusTypeDef X_V2_MultiMotor_Traj_Pos_Control(
     return X_V2_MultiMotor_Command(command_stream, stream_len);
 }
 
+HAL_StatusTypeDef X_V2_MultiMotor_Vel_Control(
+    const X_V2_Vel_Command_t *commands,
+    uint8_t command_count)
+{
+    uint8_t command_stream[X_V2_MULTI_MAX_MOTORS * 9U];
+    uint8_t one_command[9];
+    uint8_t index;
+    uint8_t stream_len;
+    uint8_t previous;
+
+    if ((commands == NULL) ||
+        (command_count == 0U) ||
+        (command_count > X_V2_MULTI_MAX_MOTORS))
+    {
+        return HAL_ERROR;
+    }
+
+    stream_len = 0U;
+    for (index = 0U; index < command_count; ++index)
+    {
+        if (commands[index].addr == 0U)
+        {
+            return HAL_ERROR;
+        }
+        for (previous = 0U; previous < index; ++previous)
+        {
+            if (commands[previous].addr == commands[index].addr)
+            {
+                return HAL_ERROR;
+            }
+        }
+
+        if (!X_V2_Build_Vel_Command(&commands[index], one_command))
+        {
+            return HAL_ERROR;
+        }
+
+        memcpy(&command_stream[stream_len], one_command, sizeof(one_command));
+        stream_len = (uint8_t)(stream_len + sizeof(one_command));
+    }
+
+    return X_V2_MultiMotor_Command(command_stream, stream_len);
+}
+
 HAL_StatusTypeDef X_V2_Timed_Return_Info(uint8_t addr,
                                          uint8_t info_function,
                                          uint16_t period_ms)
@@ -252,6 +332,48 @@ HAL_StatusTypeDef X_V2_Timed_Return_Info(uint8_t addr,
         (uint8_t)(period_ms >> 0),
         X_V2_FRAME_END
     };
+
+    if ((addr == 0U) || !X_V2_InfoFunctionIsValid(info_function))
+    {
+        return HAL_ERROR;
+    }
+
+    return can_SendCmd(cmd, (uint8_t)sizeof(cmd));
+}
+
+HAL_StatusTypeDef X_V2_Read_Info(uint8_t addr,
+                                 uint8_t info_function)
+{
+    const uint8_t cmd[] = {addr, info_function, X_V2_FRAME_END};
+
+    if ((addr == 0U) || !X_V2_InfoFunctionIsValid(info_function))
+    {
+        return HAL_ERROR;
+    }
+
+    return can_SendCmd(cmd, (uint8_t)sizeof(cmd));
+}
+
+HAL_StatusTypeDef X_V2_Set_Heartbeat(uint8_t addr,
+                                     bool save,
+                                     uint32_t timeout_ms)
+{
+    const uint8_t cmd[] = {
+        addr,
+        0x68U,
+        0x38U,
+        (uint8_t)save,
+        (uint8_t)(timeout_ms >> 24),
+        (uint8_t)(timeout_ms >> 16),
+        (uint8_t)(timeout_ms >> 8),
+        (uint8_t)(timeout_ms >> 0),
+        X_V2_FRAME_END
+    };
+
+    if (addr == 0U)
+    {
+        return HAL_ERROR;
+    }
 
     return can_SendCmd(cmd, (uint8_t)sizeof(cmd));
 }

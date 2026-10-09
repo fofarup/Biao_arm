@@ -3,14 +3,19 @@
 #include <string.h>
 
 #define ZDT_CAN_TX_TIMEOUT_MS    20U
-#define ZDT_CAN_RX_QUEUE_DEPTH   16U
+#define ZDT_CAN_RX_QUEUE_DEPTH   32U
 
+/* 机械臂和底盘分别使用接收队列，发送端共用一个互斥锁。 */
 static osMessageQueueId_t zdt_can_rx_queue = NULL;
+static osMessageQueueId_t zdt_can_chassis_rx_queue = NULL;
+static osMutexId_t zdt_can_tx_mutex = NULL;
+static volatile uint8_t zdt_can_initialized = 0U;
 
 volatile uint32_t zdt_can_tx_count = 0;
 volatile uint32_t zdt_can_tx_error_count = 0;
 volatile uint32_t zdt_can_rx_count = 0;
 volatile uint32_t zdt_can_rx_drop_count = 0;
+volatile uint32_t zdt_can_chassis_rx_drop_count = 0;
 volatile uint32_t zdt_can_error_count = 0;
 volatile ZDT_CanRxFrame_t zdt_can_last_rx = {0};
 
@@ -30,6 +35,12 @@ HAL_StatusTypeDef ZDT_CAN_Init(void)
 {
     CAN_FilterTypeDef filter = {0};
 
+    /* CAN 由 main_task、底盘任务及接收任务共用，初始化必须幂等。 */
+    if (zdt_can_initialized != 0U)
+    {
+        return HAL_OK;
+    }
+
     if (zdt_can_rx_queue == NULL)
     {
         zdt_can_rx_queue =
@@ -43,9 +54,31 @@ HAL_StatusTypeDef ZDT_CAN_Init(void)
         }
     }
 
+    if (zdt_can_chassis_rx_queue == NULL)
+    {
+        zdt_can_chassis_rx_queue =
+            osMessageQueueNew(ZDT_CAN_RX_QUEUE_DEPTH,
+                              sizeof(ZDT_CanRxFrame_t),
+                              NULL);
+
+        if (zdt_can_chassis_rx_queue == NULL)
+        {
+            return HAL_ERROR;
+        }
+    }
+
+    if (zdt_can_tx_mutex == NULL)
+    {
+        zdt_can_tx_mutex = osMutexNew(NULL);
+        if (zdt_can_tx_mutex == NULL)
+        {
+            return HAL_ERROR;
+        }
+    }
+
     /*
-     * ����������չ����֡��
-     * FilterIdLow��MaskIdLowֻ���IDEλ��
+     * 接收所有扩展数据帧：
+     * FilterIdLow和MaskIdLow只检查IDE位。
      */
     filter.FilterBank = 0;
     filter.FilterMode = CAN_FILTERMODE_IDMASK;
@@ -78,6 +111,7 @@ HAL_StatusTypeDef ZDT_CAN_Init(void)
         return HAL_ERROR;
     }
 
+    zdt_can_initialized = 1U;
     return HAL_OK;
 }
 
@@ -141,7 +175,9 @@ static HAL_StatusTypeDef ZDT_CAN_SendFrame(
     return HAL_OK;
 }
 
-HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len)
+static HAL_StatusTypeDef ZDT_CAN_SendCmdUnlocked(
+    const uint8_t *cmd,
+    uint8_t len)
 {
     uint8_t offset = 0;
     uint8_t remaining;
@@ -157,9 +193,9 @@ HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len)
     }
 
     /*
-     * cmd[0]�������ַ
-     * cmd[1]��������
-     * cmd[2...]���������
+     * cmd[0]：电机地址
+     * cmd[1]：功能码
+     * cmd[2...]：命令参数
      */
     remaining = len - 2U;
 
@@ -197,6 +233,34 @@ HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len)
     return HAL_OK;
 }
 
+HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len)
+{
+    HAL_StatusTypeDef status;
+
+    if ((cmd == NULL) || (len < 3U))
+    {
+        return HAL_ERROR;
+    }
+
+    /* 防止多任务同时发送时，Packet 0/1/2... 被不同命令交错。 */
+    if (zdt_can_tx_mutex != NULL)
+    {
+        if (osMutexAcquire(zdt_can_tx_mutex, osWaitForever) != osOK)
+        {
+            return HAL_BUSY;
+        }
+    }
+
+    status = ZDT_CAN_SendCmdUnlocked(cmd, len);
+
+    if (zdt_can_tx_mutex != NULL)
+    {
+        (void)osMutexRelease(zdt_can_tx_mutex);
+    }
+
+    return status;
+}
+
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
     CAN_RxHeaderTypeDef header;
@@ -224,6 +288,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 
         frame.ide = header.IDE;
         frame.rtr = header.RTR;
+        frame.timestamp_ms = HAL_GetTick();
         frame.dlc = (uint8_t)header.DLC;
 
         if (header.IDE == CAN_ID_EXT)
@@ -241,7 +306,39 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         zdt_can_last_rx = frame;
         ++zdt_can_rx_count;
 
-        if (zdt_can_rx_queue != NULL)
+        if (frame.ide == CAN_ID_EXT)
+        {
+            uint8_t address = (uint8_t)((frame.id >> 8U) & 0xFFU);
+
+            if ((address >= 5U) && (address <= 8U))
+            {
+                /* 底盘地址 5~8 只进入底盘队列。 */
+                if (zdt_can_chassis_rx_queue != NULL)
+                {
+                    if (osMessageQueuePut(
+                            zdt_can_chassis_rx_queue,
+                            &frame,
+                            0,
+                            0) != osOK)
+                    {
+                        ++zdt_can_chassis_rx_drop_count;
+                    }
+                }
+            }
+            else if (zdt_can_rx_queue != NULL)
+            {
+                /* 地址 1~4 及其他扩展帧仍交给机械臂原有队列。 */
+                if (osMessageQueuePut(
+                        zdt_can_rx_queue,
+                        &frame,
+                        0,
+                        0) != osOK)
+                {
+                    ++zdt_can_rx_drop_count;
+                }
+            }
+        }
+        else if (zdt_can_rx_queue != NULL)
         {
             if (osMessageQueuePut(
                     zdt_can_rx_queue,
@@ -277,4 +374,42 @@ osStatus_t ZDT_CAN_GetRx(
         frame,
         NULL,
         timeout_ticks);
+}
+
+osStatus_t ZDT_CAN_GetChassisRx(
+    ZDT_CanRxFrame_t *frame,
+    uint32_t timeout_ticks)
+{
+    if ((frame == NULL) || (zdt_can_chassis_rx_queue == NULL))
+    {
+        return osErrorParameter;
+    }
+
+    return osMessageQueueGet(
+        zdt_can_chassis_rx_queue,
+        frame,
+        NULL,
+        timeout_ticks);
+}
+
+uint32_t ZDT_CAN_FlushRx(void)
+{
+    ZDT_CanRxFrame_t frame;
+    uint32_t count = 0U;
+
+    if (zdt_can_rx_queue == NULL)
+    {
+        return 0U;
+    }
+
+    while (osMessageQueueGet(
+               zdt_can_rx_queue,
+               &frame,
+               NULL,
+               0U) == osOK)
+    {
+        ++count;
+    }
+
+    return count;
 }

@@ -96,17 +96,20 @@ void ArmIk_LoadDefaultConfig(ArmIkConfig *config)
     config->bc_mm = 240.0f;
     config->cd1_mm = 85.0f;
 
-    /* Alpha 的真实机械上下限尚未标定，本轮不擅自启用。 */
+    /* 用户已确认底座安全范围为 -180 到 +180 度。 */
     config->alpha_limit.min_deg = -180.0f;
     config->alpha_limit.max_deg = 180.0f;
+    config->alpha_limit.min_enabled = 1U;
+    config->alpha_limit.max_enabled = 1U;
 
-    /* 原机构明确禁止大臂低于零位；上限仍等待实机标定。 */
+    /* 用户已确认大臂安全范围为 0 到 180 度。 */
     config->beta_limit.min_deg = 0.0f;
     config->beta_limit.max_deg = 180.0f;
     config->beta_limit.min_enabled = 1U;
+    config->beta_limit.max_enabled = 1U;
 
     /* 已确认的 Gamma 机械最小内角；不得再用自动钳制掩盖超限。 */
-    config->gamma_limit.min_deg = 12.02;
+    config->gamma_limit.min_deg = 12.02f;
     config->gamma_limit.max_deg = 180.0f;
     config->gamma_limit.min_enabled = 1U;
     config->gamma_limit.max_enabled = 1U;

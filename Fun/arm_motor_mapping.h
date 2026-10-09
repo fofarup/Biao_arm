@@ -62,6 +62,12 @@ typedef struct
     ArmMotorDirection direction[3];
 } ArmMotorTargets;
 
+/* 未量化的电机轴绝对坐标，正负号使用本项目的逻辑正方向。 */
+typedef struct
+{
+    float degree[3];
+} ArmMotorCoordinates;
+
 void ArmMotorMap_LoadDefaultConfig(ArmMotorMapConfig *config);
 
 /*
@@ -90,6 +96,20 @@ ArmMotorMapStatus ArmMotorMap_JointsToTargets(
     ArmInstallationDirection installation_direction,
     const ArmJointAngles *joints,
     ArmMotorTargets *result);
+
+/* 机械关节角 -> 未经脉冲量化的三台电机轴绝对坐标。 */
+ArmMotorMapStatus ArmMotorMap_JointsToMotorCoordinates(
+    const ArmMotorMapConfig *config,
+    ArmInstallationDirection installation_direction,
+    const ArmJointAngles *joints,
+    ArmMotorCoordinates *result);
+
+/* 三台驱动器的有符号绝对位置脉冲 -> 机械关节角。 */
+ArmMotorMapStatus ArmMotorMap_PulsesToJoints(
+    const ArmMotorMapConfig *config,
+    ArmInstallationDirection installation_direction,
+    const int32_t pulse[3],
+    ArmJointAngles *result);
 
 const char *ArmMotorMap_StatusString(ArmMotorMapStatus status);
 

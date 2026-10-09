@@ -23,7 +23,9 @@ typedef enum
 /* 5.5.1 定时返回信息命令中常用的信息功能码。 */
 typedef enum
 {
+    X_V2_INFO_REALTIME_SPEED = 0x35U,
     X_V2_INFO_REALTIME_POSITION = 0x36U,
+    X_V2_INFO_POSITION_ERROR = 0x37U,
     X_V2_INFO_STATUS = 0x3AU
 } X_V2_InfoFunction_t;
 
@@ -41,6 +43,18 @@ typedef struct
     /* 单机命令中为同步缓存标志；多电机命令中为到位返回标志。 */
     bool snF;
 } X_V2_Traj_Pos_Command_t;
+
+/* 5.3.5 多电机命令中的一条 X 固件速度命令。 */
+typedef struct
+{
+    uint8_t addr;
+    X_V2_Direction_t dir;
+    uint16_t acc_rpm_per_s;
+    float vel_rpm;
+
+    /* 多电机命令立即执行时应为 false。 */
+    bool snF;
+} X_V2_Vel_Command_t;
 
 HAL_StatusTypeDef X_V2_Reset_CurPos_To_Zero(uint8_t addr);
 HAL_StatusTypeDef X_V2_Reset_Clog_Pro(uint8_t addr);
@@ -73,10 +87,24 @@ HAL_StatusTypeDef X_V2_MultiMotor_Traj_Pos_Control(
     const X_V2_Traj_Pos_Command_t *commands,
     uint8_t command_count);
 
+/* 将多条 X 速度命令打包为一条 00 AA 多电机命令并发送。 */
+HAL_StatusTypeDef X_V2_MultiMotor_Vel_Control(
+    const X_V2_Vel_Command_t *commands,
+    uint8_t command_count);
+
 /* 5.5.1：周期读取实时位置、状态等信息；period_ms=0 表示停止返回。 */
 HAL_StatusTypeDef X_V2_Timed_Return_Info(uint8_t addr,
                                          uint8_t info_function,
                                          uint16_t period_ms);
+
+/* 读取一次 5.5 章节中的实时信息，返回帧进入 ZDT_CAN 接收队列。 */
+HAL_StatusTypeDef X_V2_Read_Info(uint8_t addr,
+                                 uint8_t info_function);
+
+/* 3.8/5.6.25 心跳保护；timeout_ms=0 关闭，save=false 不写入掉电存储。 */
+HAL_StatusTypeDef X_V2_Set_Heartbeat(uint8_t addr,
+                                     bool save,
+                                     uint32_t timeout_ms);
 
 HAL_StatusTypeDef X_V2_Stop_Now(uint8_t addr, bool snF);
 HAL_StatusTypeDef X_V2_Synchronous_motion(uint8_t addr);

@@ -252,6 +252,127 @@ ArmMotorMapStatus ArmMotorMap_JointsToTargets(
     return ARM_MOTOR_MAP_OK;
 }
 
+ArmMotorMapStatus ArmMotorMap_JointsToMotorCoordinates(
+    const ArmMotorMapConfig *config,
+    ArmInstallationDirection installation_direction,
+    const ArmJointAngles *joints,
+    ArmMotorCoordinates *result)
+{
+    int direction_index;
+    double offset_degrees;
+    double motor1_degrees;
+    double motor2_degrees;
+    double motor3_degrees;
+
+    if ((config == NULL) || (joints == NULL) || (result == NULL))
+    {
+        return ARM_MOTOR_MAP_NULL_POINTER;
+    }
+    if (!ArmMotorMap_ConfigIsValid(config))
+    {
+        return ARM_MOTOR_MAP_INVALID_CONFIG;
+    }
+    if (!isfinite(joints->alpha_deg) ||
+        !isfinite(joints->beta_deg) ||
+        !isfinite(joints->gamma_deg))
+    {
+        return ARM_MOTOR_MAP_NUMERIC_ERROR;
+    }
+
+    direction_index = ArmMotorMap_DirectionIndex(installation_direction);
+    if (direction_index < 0)
+    {
+        return ARM_MOTOR_MAP_INVALID_DIRECTION;
+    }
+    if (config->direction_offset_valid[direction_index] == 0U)
+    {
+        return ARM_MOTOR_MAP_DIRECTION_NOT_CONFIGURED;
+    }
+
+    offset_degrees =
+        ((double)config->direction_offset_pulse[direction_index] * 360.0) /
+        (double)config->pulses_per_revolution;
+    motor1_degrees = ((double)config->motor1_ratio *
+                      (double)joints->alpha_deg) + offset_degrees;
+    motor2_degrees = (double)config->motor2_ratio *
+                     (double)joints->beta_deg;
+    motor3_degrees = ((double)config->motor3_gamma_ratio *
+                      ((double)config->gamma_zero_deg -
+                       (double)joints->gamma_deg)) +
+                     ((double)config->motor2_ratio *
+                      (double)joints->beta_deg);
+
+    if (!isfinite(motor1_degrees) ||
+        !isfinite(motor2_degrees) ||
+        !isfinite(motor3_degrees))
+    {
+        return ARM_MOTOR_MAP_NUMERIC_ERROR;
+    }
+
+    result->degree[0] = (float)motor1_degrees;
+    result->degree[1] = (float)motor2_degrees;
+    result->degree[2] = (float)motor3_degrees;
+    return ARM_MOTOR_MAP_OK;
+}
+
+ArmMotorMapStatus ArmMotorMap_PulsesToJoints(
+    const ArmMotorMapConfig *config,
+    ArmInstallationDirection installation_direction,
+    const int32_t pulse[3],
+    ArmJointAngles *result)
+{
+    int direction_index;
+    double pulse_scale;
+    double motor1_pulse;
+    double motor2_degrees;
+    double motor3_degrees;
+    double alpha;
+    double beta;
+    double gamma;
+
+    if ((config == NULL) || (pulse == NULL) || (result == NULL))
+    {
+        return ARM_MOTOR_MAP_NULL_POINTER;
+    }
+    if (!ArmMotorMap_ConfigIsValid(config))
+    {
+        return ARM_MOTOR_MAP_INVALID_CONFIG;
+    }
+
+    direction_index = ArmMotorMap_DirectionIndex(installation_direction);
+    if (direction_index < 0)
+    {
+        return ARM_MOTOR_MAP_INVALID_DIRECTION;
+    }
+    if (config->direction_offset_valid[direction_index] == 0U)
+    {
+        return ARM_MOTOR_MAP_DIRECTION_NOT_CONFIGURED;
+    }
+
+    pulse_scale = (double)config->pulses_per_revolution / 360.0;
+    motor1_pulse = (double)pulse[0] -
+                   (double)config->direction_offset_pulse[direction_index];
+    motor2_degrees = (double)pulse[1] / pulse_scale;
+    motor3_degrees = (double)pulse[2] / pulse_scale;
+
+    alpha = (motor1_pulse / pulse_scale) /
+            (double)config->motor1_ratio;
+    beta = motor2_degrees / (double)config->motor2_ratio;
+    gamma = (double)config->gamma_zero_deg +
+            (((double)config->motor2_ratio * beta) - motor3_degrees) /
+            (double)config->motor3_gamma_ratio;
+
+    if (!isfinite(alpha) || !isfinite(beta) || !isfinite(gamma))
+    {
+        return ARM_MOTOR_MAP_NUMERIC_ERROR;
+    }
+
+    result->alpha_deg = (float)alpha;
+    result->beta_deg = (float)beta;
+    result->gamma_deg = (float)gamma;
+    return ARM_MOTOR_MAP_OK;
+}
+
 const char *ArmMotorMap_StatusString(ArmMotorMapStatus status)
 {
     switch (status)
