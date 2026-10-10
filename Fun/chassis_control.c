@@ -22,17 +22,17 @@
 
 /* 行走中横向纠偏：沿起点到终点直线的法向修正，单位为 mm/s、mm/s²。 */
 #define CHASSIS_TRACK_CROSS_KP            (2.0f)
-#define CHASSIS_TRACK_CROSS_KD            (0.015f)
-#define CHASSIS_TRACK_CROSS_MAX_MM_S      (1000.0f)
+#define CHASSIS_TRACK_CROSS_KD            (0.15f)
+#define CHASSIS_TRACK_CROSS_MAX_MM_S      (3000.0f)
 #define CHASSIS_TRACK_CROSS_ACC_MM_S2     (600.0f)
-#define CHASSIS_TRACK_CROSS_DEC_MM_S2     (900.0f)
+#define CHASSIS_TRACK_CROSS_DEC_MM_S2     (1000.0f)
 
 /* 转弯及到位后的 XY 保持：与行走中横向纠偏分别调参。 */
 #define CHASSIS_HOLD_XY_KP                (2.0f)
-#define CHASSIS_HOLD_XY_KD                (0.015f)
-#define CHASSIS_HOLD_XY_MAX_MM_S          (1000.0f)
-#define CHASSIS_HOLD_XY_ACC_MM_S2         (300.0f)
-#define CHASSIS_HOLD_XY_DEC_MM_S2         (500.0f)
+#define CHASSIS_HOLD_XY_KD                (0.15f)
+#define CHASSIS_HOLD_XY_MAX_MM_S          (3000.0f)
+#define CHASSIS_HOLD_XY_ACC_MM_S2         (600.0f)
+#define CHASSIS_HOLD_XY_DEC_MM_S2         (1000.0f)
 
 /* 最终轮速安全斜率：只约束叠加后的输出，不让动作的低斜率拖慢纠偏。 */
 #define CHASSIS_CORRECTION_WHEEL_ACC_RPM_S (2000.0f)
@@ -49,16 +49,16 @@
  *          ↓
  * 四个带符号逻辑 RPM，再转换为 X 固件方向位。
  */
-#define CHASSIS_PI                 (3.14159265358979323846f)
-#define CHASSIS_MIN_DT_S           (0.001f)
-#define CHASSIS_MAX_DT_S           (0.100f)
-#define CHASSIS_DEFAULT_SENSOR_TIMEOUT_MS (200U)
-#define CHASSIS_SEQUENCE_POSITION_TOLERANCE_MM (2.0f)
-#define CHASSIS_SEQUENCE_YAW_TOLERANCE_DEG     (1.0f)
-#define CHASSIS_SEQUENCE_WAIT_PERIOD_MS        (20U)
-#define CHASSIS_SEQUENCE_TIMEOUT_MS         (30000U)
-#define CHASSIS_MAX_SOFTWARE_RAMP_RPM_S        (65535.0f)
-#define CHASSIS_MAX_COMMAND_RPM                (3000.0f)
+#define CHASSIS_PI                 (3.14159265358979323846f) /* 圆周率，用于角度换算。 */
+#define CHASSIS_MIN_DT_S           (0.001f)  /* 控制周期下限，单位秒。 */
+#define CHASSIS_MAX_DT_S           (0.100f)  /* 控制周期上限，单位秒。 */
+#define CHASSIS_DEFAULT_SENSOR_TIMEOUT_MS (200U) /* 传感器数据超时，单位毫秒。 */
+#define CHASSIS_SEQUENCE_POSITION_TOLERANCE_MM (1.0f) /* XY 到位误差，单位毫米。 */
+#define CHASSIS_SEQUENCE_YAW_TOLERANCE_DEG     (0.3f) /* 航向到位误差，单位度。 */
+#define CHASSIS_SEQUENCE_WAIT_PERIOD_MS        (20U) /* 等待动作完成的检查间隔，单位毫秒。 */
+#define CHASSIS_SEQUENCE_TIMEOUT_MS         (30000U) /* 单次动作超时，单位毫秒。 */
+#define CHASSIS_MAX_SOFTWARE_RAMP_RPM_S        (65535.0f) /* 软件加减速参数上限，单位 RPM/s。 */
+#define CHASSIS_MAX_COMMAND_RPM                (3000.0f) /* 电机命令转速上限，单位 RPM。 */
 
 static ChassisControlConfig_t chassis_config;
 static ChassisControlMode_t chassis_mode = CHASSIS_CONTROL_STOP;

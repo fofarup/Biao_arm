@@ -203,9 +203,9 @@ void MainTask_Run(void *argument)
     {
         osDelay(MAIN_TASK_IDLE_PERIOD_MS);
     }
-      
+
 	
-//    ChassisControl_MoveRelativeSequential(-1000.0f, 150.0f, 0.0f,50.0f, 300.0f, 400.0f);
+    ChassisControl_MoveRelativeSequential(10.0f, 10.0f, 0.0f,50.0f, 300.0f, 400.0f);
 //		
 //    ChassisControl_MoveRelativeSequential(0.0f, 850.0f, 0.0f,50.0f, 300.0f, 400.0f);  
 //		
@@ -224,30 +224,44 @@ void MainTask_Run(void *argument)
 
 
     /* 上电后先等 OPS9 和 HW101 都有 200 ms 内的有效数据，再启动底盘动作。 */
-
+    ArmTask_MoveToXYZOrFault(0,170,200,1.5);
 
 while(1){
-//			ArmTask_MoveToXYZOrFault(50,150,300,2);
-//    ArmTask_MoveToXYZOrFault(230,230,80,2);
+//		ArmTask_MoveToXYZOrFault(50,150,300,1);
+//    ArmTask_MoveToXYZOrFault(230,230,95,1);
 //		Claw_SetAngle(80,500);
 //		osDelay(500);
-//		ArmTask_MoveToXYZOrFault(50,150,300,2);
+//		ArmTask_MoveToXYZOrFault(50,150,300,1);
 //		ArmTask_MoveToXYZOrFault(-50,150,300,1);	
-//		ArmTask_MoveToXYZOrFault(-230,230,80,2);
-//    Claw_SetAngle(50,500);
-//		ArmTask_MoveToXYZOrFault(-50,150,300,2);
-//    ArmTask_MoveToXYZOrFault(-230,230,80,2);
+//		ArmTask_MoveToXYZOrFault(-230,230,95,1);
+//    Claw_SetAngle(30,500);
+//	  osDelay(500);
+//		ArmTask_MoveToXYZOrFault(-50,150,300,1);
+//    ArmTask_MoveToXYZOrFault(-230,230,95,1);
 //		Claw_SetAngle(80,500);
 //		osDelay(500);
-//    ArmTask_MoveToXYZOrFault(-50,150,300,2);
+//    ArmTask_MoveToXYZOrFault(-50,150,300,1);
 //    ArmTask_MoveToXYZOrFault(50,150,300,1);
-//		ArmTask_MoveToXYZOrFault(230,230,80,2);
-//	  Claw_SetAngle(50,500);
+//		ArmTask_MoveToXYZOrFault(230,230,95,1);
+//	  Claw_SetAngle(30,500);
 //	  osDelay(500);
-
-	 ChassisControl_MoveRelativeSequential(0.0f, 1000.0f, 180.0f,50.0f, 300.0f, 300.0f);
-	 //osDelay(200);
+//    ArmTask_MoveToXYZOrFault(0,170,200,1.5);
+//	 ChassisControl_MoveRelativeSequential(1000.0f, 0.0f, 0.0f,100.0f, 600.0f, 600.0f);
+//	 osDelay(500);
+//	 ChassisControl_MoveRelativeSequential(-1000.0f, 0.0f, 0.0f,50.0f, 300.0f, 300.0f);
+//	 osDelay(500);
 	 
-	
+//	 ChassisControl_MoveRelativeSequential(0.0f, 10.0f, 0.0f,50.0f, 300.0f, 400.0f);
+//	 
+//	 osDelay(1000);
+//	 
+//	 ChassisControl_MoveRelativeSequential(0.0f, 10.0f, 0.0f,50.0f, 300.0f, 400.0f);
+//	 
+//	 osDelay(1000);
+//ArmTask_MoveToXYZOrFault(50,170,200,1);
+Claw_SetAngle(70,500);
+ArmTask_MoveToXYZOrFault(-50,170,200,1);
+ArmTask_MoveToXYZOrFault(-50,-170,200,2);
+//	 
     }
 }
