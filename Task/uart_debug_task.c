@@ -9,14 +9,13 @@
 #include <stddef.h>
 #include <stdio.h>
 
-/* USART1 每 50 ms 发送一行数据。 */
+/* USART1 每 500 ms 发送一行数据；传感器接收由 UART 中断持续完成。 */
 #define UART_DEBUG_TASK_PERIOD_MS       (500U)
 #define UART_DEBUG_TX_TIMEOUT_MS        (20U)
 
 OPS9_Data_t ops9_data;
 HW101_Data_t hw101_data;
 EndLevelTelemetry_t end_level_data;
-
 
 /*
  * 按固定小数位输出浮点数，避免依赖 ARMCC printf 的 %f 支持，
@@ -77,9 +76,6 @@ static void UartDebug_FormatFixed(char *text,
 
 void UartDebugTask_Run(void *argument)
 {
-
-
-	
     char x_text[20];
     char y_text[20];
     char yaw_text[20];
@@ -87,6 +83,8 @@ void UartDebugTask_Run(void *argument)
     char line[96];
     int length;
     uint32_t next_wake;
+    uint8_t ops9_receive_started = 0U;
+    uint8_t hw101_receive_started = 0U;
 
     (void)argument;
 
@@ -95,6 +93,19 @@ void UartDebugTask_Run(void *argument)
 
     for (;;)
     {
+        /* 两路接收分别启动；一方失败不阻止另一方及调试输出。 */
+        if (ops9_receive_started == 0U)
+        {
+            ops9_receive_started =
+                (OPS9_StartReceive() == HAL_OK) ? 1U : 0U;
+        }
+        if (hw101_receive_started == 0U)
+        {
+            hw101_receive_started =
+                (HW101_StartReceive() == HAL_OK) ? 1U : 0U;
+        }
+
+        /* 启动成功后不再轮询串口；失败的一路每 500 ms 独立重试。 */
         /* 读取三个模块已经缓存好的最新数据，不在此处直接访问传感器。 */
         (void)OPS9_GetLatest(&ops9_data);
         (void)HW101_GetData(&hw101_data);

@@ -21,7 +21,7 @@ typedef enum
     CHASSIS_CONTROL_STOP = 0U, /* 受控停止。 */
     CHASSIS_CONTROL_VELOCITY,  /* 速度指令模式。 */
     CHASSIS_CONTROL_POSE,      /* OPS9/HW101 位置闭环模式。 */
-    CHASSIS_CONTROL_FAULT      /* 传感器或电机故障，强制停机。 */
+    CHASSIS_CONTROL_FAULT      /* 传感器或 CAN 发送故障，强制停机。 */
 } ChassisControlMode_t;
 
 /* 相对位移动作的阶段：先平移，再旋转。 */
@@ -87,7 +87,6 @@ typedef struct
     ChassisBodyVelocity_t body_velocity_command; /* 当前输出车体速度。 */
     uint8_t origin_valid; /* 是否已经锁定传感器原点。 */
     uint8_t sensor_fault; /* OPS9/HW101 超时。 */
-    uint8_t motor_fault; /* 3A 堵转或命令错误。 */
     ChassisSequencePhase_t sequence_phase; /* 相对动作的当前阶段。 */
     uint8_t sequence_done; /* 相对动作是否完成。 */
 } ChassisControlState_t;

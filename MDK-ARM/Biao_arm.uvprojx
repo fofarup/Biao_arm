@@ -1230,16 +1230,6 @@
               <FilePath>..\Fun\chassis_mecanum.h</FilePath>
             </File>
             <File>
-              <FileName>chassis_feedback.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Fun\chassis_feedback.c</FilePath>
-            </File>
-            <File>
-              <FileName>chassis_feedback.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Fun\chassis_feedback.h</FilePath>
-            </File>
-            <File>
               <FileName>chassis_control.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Fun\chassis_control.c</FilePath>
@@ -1265,26 +1255,6 @@
               <FilePath>..\Task\end_level_task.h</FilePath>
             </File>
             <File>
-              <FileName>ops9_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Task\ops9_task.c</FilePath>
-            </File>
-            <File>
-              <FileName>ops9_task.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Task\ops9_task.h</FilePath>
-            </File>
-            <File>
-              <FileName>hw101_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Task\hw101_task.c</FilePath>
-            </File>
-            <File>
-              <FileName>hw101_task.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Task\hw101_task.h</FilePath>
-            </File>
-            <File>
               <FileName>uart_debug_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Task\uart_debug_task.c</FilePath>
@@ -1303,16 +1273,6 @@
               <FileName>chassis_task.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Task\chassis_task.h</FilePath>
-            </File>
-            <File>
-              <FileName>can_rx_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Task\can_rx_task.c</FilePath>
-            </File>
-            <File>
-              <FileName>can_rx_task.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Task\can_rx_task.h</FilePath>
             </File>
             <File>
               <FileName>main_task.c</FileName>

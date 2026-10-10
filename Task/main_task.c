@@ -109,13 +109,13 @@ static uint8_t MainTask_InitializeArm(void)
     }
 
     /* 陀螺仪完成初始化和静止校准后，才允许打开 ID4 自动调平。 */
-    if (!EndLevelTask_WaitReady(END_LEVEL_TASK_READY_TIMEOUT_MS))
-    {
-        main_task_arm_status = ARM_MOTION_FEEDBACK_TIMEOUT;
-        return 0U;
-    }
+//    if (!EndLevelTask_WaitReady(END_LEVEL_TASK_READY_TIMEOUT_MS))
+//    {
+//        main_task_arm_status = ARM_MOTION_FEEDBACK_TIMEOUT;
+//        return 0U;
+//    }
 
-    EndLevelTask_SetControlEnabled(END_LEVEL_CONTROL_DEFAULT != 0U);
+    ///EndLevelTask_SetControlEnabled(END_LEVEL_CONTROL_DEFAULT != 0U);
     main_task_arm_recovery_status = ARM_MOTION_OK;
     main_task_arm_ready = 1U;
     return 1U;
@@ -193,12 +193,17 @@ uint8_t MainTask_ChassisSensorsReady(void)
 void MainTask_Run(void *argument)
 {   
     (void)argument;
-osDelay(10000);
+//osDelay(10000);
     if (MainTask_InitializeArm() == 0U)
     {
         MainTask_ArmFaultStop();
     }
-      Claw_SetAngle(0.0f,1000u);//夹爪初始化
+		Claw_SetAngle(0.0f,1000u);//夹爪初始化
+    while (MainTask_ChassisSensorsReady() == 0U)
+    {
+        osDelay(MAIN_TASK_IDLE_PERIOD_MS);
+    }
+      
 	
 //    ChassisControl_MoveRelativeSequential(-1000.0f, 150.0f, 0.0f,50.0f, 300.0f, 400.0f);
 //		
@@ -216,7 +221,9 @@ osDelay(10000);
 //		
 //		ChassisControl_MoveRelativeSequential(0.0f, -1500.0f, 0.0f,50.0f, 300.0f, 400.0f);
 //		
-		
+
+
+    /* 上电后先等 OPS9 和 HW101 都有 200 ms 内的有效数据，再启动底盘动作。 */
 
 
 while(1){
@@ -239,7 +246,8 @@ while(1){
 //	  osDelay(500);
 
 	 ChassisControl_MoveRelativeSequential(0.0f, 1000.0f, 180.0f,50.0f, 300.0f, 300.0f);
-	
+	 //osDelay(200);
+	 
 	
     }
 }

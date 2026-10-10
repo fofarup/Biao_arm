@@ -4,7 +4,6 @@
 #include <string.h>
 
 #include "cmsis_os.h"
-#include "chassis_feedback.h"
 #include "hw101.h"
 #include "ops9.h"
 
@@ -99,7 +98,6 @@ static float chassis_origin_y_mm;
 static float chassis_origin_yaw_deg;
 static uint8_t chassis_origin_valid;
 static uint8_t chassis_sensor_fault;
-static uint8_t chassis_motor_fault;
 static uint8_t chassis_control_initialized;
 
 static float chassis_previous_x_mm;
@@ -817,7 +815,6 @@ void ChassisControl_Init(const ChassisControlConfig_t *config)
     chassis_origin_yaw_deg = 0.0f;
     chassis_origin_valid = 0U;
     chassis_sensor_fault = 0U;
-    chassis_motor_fault = 0U;
     chassis_previous_sample_valid = 0U;
     chassis_control_initialized = 1U;
     ChassisControl_ResetRuntimeLimits();
@@ -1056,8 +1053,8 @@ void ChassisControl_Stop(void)
 }
 
 /**
- * 功能：清除控制器记录的传感器/电机故障标志并回到 STOP 状态。
- * 使用方法：确认外部故障已排除后调用；它会重新等待有效传感器建立原点，不代替驱动器故障复位。
+ * 功能：清除控制器记录的传感器故障标志并回到 STOP 状态。
+ * 使用方法：确认外部故障已排除后调用；它会重新等待有效传感器建立原点。
  */
 void ChassisControl_ClearFault(void)
 {
@@ -1067,7 +1064,6 @@ void ChassisControl_ClearFault(void)
     }
 
     chassis_sensor_fault = 0U;
-    chassis_motor_fault = 0U;
     chassis_origin_valid = 0U;
     chassis_previous_sample_valid = 0U;
     chassis_sequence_phase = CHASSIS_SEQUENCE_IDLE;
@@ -1177,16 +1173,6 @@ uint8_t ChassisControl_Update(float dt_s,
     else if (chassis_mode != CHASSIS_CONTROL_STOP)
     {
         chassis_sensor_fault = 1U;
-        chassis_mode = CHASSIS_CONTROL_FAULT;
-        chassis_sequence_phase = CHASSIS_SEQUENCE_IDLE;
-        chassis_sequence_done = 0U;
-    }
-
-    if ((chassis_mode != CHASSIS_CONTROL_STOP) &&
-        (chassis_mode != CHASSIS_CONTROL_FAULT) &&
-        (ChassisFeedback_HasFault() != 0U))
-    {
-        chassis_motor_fault = 1U;
         chassis_mode = CHASSIS_CONTROL_FAULT;
         chassis_sequence_phase = CHASSIS_SEQUENCE_IDLE;
         chassis_sequence_done = 0U;
@@ -1400,7 +1386,6 @@ void ChassisControl_GetState(ChassisControlState_t *state)
     state->body_velocity_command = chassis_current_velocity;
     state->origin_valid = chassis_origin_valid;
     state->sensor_fault = chassis_sensor_fault;
-    state->motor_fault = chassis_motor_fault;
     state->sequence_phase = chassis_sequence_phase;
     state->sequence_done = chassis_sequence_done;
     if (primask == 0U)

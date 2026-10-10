@@ -3,8 +3,8 @@
 
 /*
  * ZDT CAN 公共收发接口。
- * 地址 1~4 等帧进入机械臂队列，地址 5~8 的扩展帧进入底盘队列，
- * 这样机械臂的位置等待逻辑和底盘反馈任务互不抢帧。
+ * 地址 1~4 等帧进入机械臂队列，地址 5~8 的扩展帧被丢弃；
+ * 底盘只使用 OPS9/HW101 外部闭环，不抢机械臂的位置反馈。
  */
 
 #include "main.h"
@@ -28,10 +28,6 @@ HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len);
 osStatus_t ZDT_CAN_GetRx(ZDT_CanRxFrame_t *frame,
                         uint32_t timeout_ticks);
 
-/* 底盘专用反馈队列，只复制地址 5~8 的扩展帧，不抢机械臂队列。 */
-osStatus_t ZDT_CAN_GetChassisRx(ZDT_CanRxFrame_t *frame,
-                                uint32_t timeout_ticks);
-
 /* 丢弃当前队列中尚未处理的旧帧，返回丢弃帧数。 */
 uint32_t ZDT_CAN_FlushRx(void);
 
@@ -39,7 +35,6 @@ extern volatile uint32_t zdt_can_tx_count;
 extern volatile uint32_t zdt_can_tx_error_count;
 extern volatile uint32_t zdt_can_rx_count;
 extern volatile uint32_t zdt_can_rx_drop_count;
-extern volatile uint32_t zdt_can_chassis_rx_drop_count;
 extern volatile uint32_t zdt_can_error_count;
 extern volatile ZDT_CanRxFrame_t zdt_can_last_rx;
 

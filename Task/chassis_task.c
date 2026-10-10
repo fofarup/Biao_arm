@@ -5,27 +5,30 @@
 #include "cmsis_os.h"
 
 #include "X_V2.h"
-#include "chassis_feedback.h"
 #include "zdt_can.h"
 
 /*
  * 底盘主循环采用 20 ms 周期：读取控制器输出、生成四轮 F6 指令，
  * 再通过一条多电机命令发送。实际位置真值来自 OPS9/HW101，
- * 电机 36/37/3A 反馈由 CanRxTask 异步解析。
+ * 不使用 ID5~8 的电机状态反馈参与底盘控制。
  */
 #define CHASSIS_TASK_PERIOD_MS             (20U)
 #define CHASSIS_STARTUP_DELAY_MS          (100U)
 #define CHASSIS_HEARTBEAT_TIMEOUT_MS      (300U)
-#define CHASSIS_POSITION_INFO_PERIOD_MS   (50U)
-#define CHASSIS_STATUS_INFO_PERIOD_MS     (50U)
-#define CHASSIS_ERROR_INFO_PERIOD_MS      (100U)
 
 volatile ChassisControlState_t chassis_debug_state;
 
 static HAL_StatusTypeDef ChassisTask_ConfigureDrivers(
     const ChassisControlConfig_t *config)
 {
+    static const uint8_t feedback_codes[4] = {
+        X_V2_INFO_REALTIME_SPEED,
+        X_V2_INFO_REALTIME_POSITION,
+        X_V2_INFO_POSITION_ERROR,
+        X_V2_INFO_STATUS
+    };
     uint8_t index;
+    uint8_t info_index;
 
     if (config == NULL)
     {
@@ -66,39 +69,19 @@ static HAL_StatusTypeDef ChassisTask_ConfigureDrivers(
         osDelay(2U);
     }
 
-    /*
-     * 低频获取电机反馈：
-     * 36 观察实时位置，37 观察位置误差，3A 监测状态和故障。
-     * 这些帧进入底盘专用队列，不会抢占机械臂的原有队列。
-     */
+    /* 关闭旧配置可能仍在输出的 35/36/37/3A 定时反馈；0 ms 表示停止。 */
     for (index = 0U; index < CHASSIS_MOTOR_COUNT; ++index)
     {
-        if (X_V2_Timed_Return_Info(
-                config->motor_addr[index],
-                X_V2_INFO_REALTIME_POSITION,
-                CHASSIS_POSITION_INFO_PERIOD_MS) != HAL_OK)
+        for (info_index = 0U; info_index < 4U; ++info_index)
         {
-            return HAL_ERROR;
+            if (X_V2_Timed_Return_Info(config->motor_addr[index],
+                                       feedback_codes[info_index],
+                                       0U) != HAL_OK)
+            {
+                return HAL_ERROR;
+            }
+            osDelay(2U);
         }
-        osDelay(2U);
-
-        if (X_V2_Timed_Return_Info(
-                config->motor_addr[index],
-                X_V2_INFO_POSITION_ERROR,
-                CHASSIS_ERROR_INFO_PERIOD_MS) != HAL_OK)
-        {
-            return HAL_ERROR;
-        }
-        osDelay(2U);
-
-        if (X_V2_Timed_Return_Info(
-                config->motor_addr[index],
-                X_V2_INFO_STATUS,
-                CHASSIS_STATUS_INFO_PERIOD_MS) != HAL_OK)
-        {
-            return HAL_ERROR;
-        }
-        osDelay(2U);
     }
 
     return HAL_OK;
@@ -165,7 +148,7 @@ void ChassisTask_Run(void *argument)
            sizeof(chassis_debug_state));
     fault_handled = 0U;
 
-    /* 允许 CanRxTask 或机械臂任务先后调用，ZDT_CAN_Init 已做幂等保护。 */
+    /* 允许机械臂任务先后调用，ZDT_CAN_Init 已做幂等保护。 */
     if (ZDT_CAN_Init() != HAL_OK)
     {
         ChassisControl_FaultStop();
