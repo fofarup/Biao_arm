@@ -3,6 +3,7 @@ MDK-ARM/Biao_arm/
 MDK-ARM/*.uvguix.*
 MDK-ARM/*.scvd
 MDK-ARM/*.lst
+MDK-ARM/*.log
 
 # STM32CubeMX temporary files
 *.bak
@@ -43,6 +44,7 @@ Drivers/STM32F4xx_HAL_Driver/Src/*
 !Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c
 !Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c
 !Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c
+!Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
 
 # The project uses FreeRTOS heap_4
 Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/*

@@ -1,28 +1,43 @@
+/*
+  ç¨‹åºè¯´æ˜: HW101 èˆªå‘ä¼ æ„Ÿå™¨ä¸²å£æ¥æ”¶ã€æ ¡éªŒå’Œç¼“å­˜è¯»å–ã€‚
+  è½¯ä»¶ç¯å¢ƒ: Keil MDK / ARM Compiler 5.06u7ï¼ŒSTM32Cube HALï¼ŒFreeRTOS CMSIS-RTOS2ã€‚
+  ç¡¬ä»¶ç¯å¢ƒ: STM32F407ZET6 æœºæ¢°è‡‚ä¸éº¦å…‹çº³å§†ç§»åŠ¨å¹³å°ã€‚
+  æ—¥    æœŸ: 2026-10-23
+*/
+
 #include "hw101.h"
 #include "usart.h"
 
 #include <string.h>
 
-/* WIT/HW101 ½Ç¶ÈÊı¾İÖ¡ÀàĞÍ */
+/* WIT/HW101 è§’åº¦æ•°æ®å¸§ç±»å‹ */
 #define HW101_ANGLE_FRAME_ID    (0x53U)
 
-/* USART2 µ¥×Ö½Ú½ÓÊÕ»º´æ */
+/* USART2 å•å­—èŠ‚æ¥æ”¶ç¼“å­˜ */
 static uint8_t hw101_rx_byte;
 
-/* µ±Ç°ÕıÔÚ½ÓÊÕµÄÊı¾İÖ¡ */
+/* å½“å‰æ­£åœ¨æ¥æ”¶çš„æ•°æ®å¸§ */
 static uint8_t hw101_frame[HW101_FRAME_LENGTH];
 static uint8_t hw101_frame_index;
 
-/* ×î½üÒ»´ÎÓĞĞ§Êı¾İ */
+/* æœ€è¿‘ä¸€æ¬¡æœ‰æ•ˆæ•°æ® */
 static volatile HW101_Data_t hw101_latest;
 
-/* Çå¿Õµ±Ç°Ö¡½ÓÊÕ×´Ì¬ */
+/*
+  å‡½æ•°è¯´æ˜: æ¸…ç©ºå½“å‰å¸§æ¥æ”¶çŠ¶æ€
+  è°ƒç”¨ç¤ºä¾‹: HW101_ResetParser();
+  å‚æ•°æ„ä¹‰: æ— ã€‚
+*/
 static void HW101_ResetParser(void)
 {
     hw101_frame_index = 0U;
 }
 
-/* ¼ì²éÒ»Ö¡Êı¾İµÄĞ£ÑéºÍ */
+/*
+  å‡½æ•°è¯´æ˜: æ£€æŸ¥ä¸€å¸§æ•°æ®çš„æ ¡éªŒå’Œ
+  è°ƒç”¨ç¤ºä¾‹: HW101_ChecksumOK();
+  å‚æ•°æ„ä¹‰: æ— ã€‚
+*/
 static uint8_t HW101_ChecksumOK(void)
 {
     uint8_t index;
@@ -31,8 +46,8 @@ static uint8_t HW101_ChecksumOK(void)
     sum = 0U;
 
     /*
-     * µÚ 0¡«9 ×Ö½ÚÀÛ¼Ó£¬
-     * µÚ 10 ×Ö½ÚÊÇĞ£ÑéºÍ¡£
+     * ç¬¬ 0ï½9 å­—èŠ‚ç´¯åŠ ï¼Œ
+     * ç¬¬ 10 å­—èŠ‚æ˜¯æ ¡éªŒå’Œã€‚
      */
     for (index = 0U; index < 10U; ++index)
     {
@@ -42,14 +57,18 @@ static uint8_t HW101_ChecksumOK(void)
     return (sum == hw101_frame[10]) ? 1U : 0U;
 }
 
-/* ´¦ÀíÒ»Ö¡ÍêÕûÊı¾İ */
+/*
+  å‡½æ•°è¯´æ˜: å¤„ç†ä¸€å¸§å®Œæ•´æ•°æ®
+  è°ƒç”¨ç¤ºä¾‹: HW101_ProcessFrame();
+  å‚æ•°æ„ä¹‰: æ— ã€‚
+*/
 static void HW101_ProcessFrame(void)
 {
     HW101_Data_t decoded;
     int16_t raw_yaw;
     uint16_t raw_temperature;
 
-    /* Ğ£ÑéÊ§°Ü£¬¶ªÆúµ±Ç°Ö¡ */
+    /* æ ¡éªŒå¤±è´¥ï¼Œä¸¢å¼ƒå½“å‰å¸§ */
     if (HW101_ChecksumOK() == 0U)
     {
         hw101_latest.bad_frame_count++;
@@ -57,8 +76,8 @@ static void HW101_ProcessFrame(void)
     }
 
     /*
-     * 0x53 ±íÊ¾½Ç¶ÈÖ¡¡£
-     * ÆäËûÖ¡£¬ÀıÈç 0x51¡¢0x52£¬ÔİÊ±ºöÂÔ¡£
+     * 0x53 è¡¨ç¤ºè§’åº¦å¸§ã€‚
+     * å…¶ä»–å¸§ï¼Œä¾‹å¦‚ 0x51ã€0x52ï¼Œæš‚æ—¶å¿½ç•¥ã€‚
      */
     if (hw101_frame[1] != HW101_ANGLE_FRAME_ID)
     {
@@ -66,8 +85,8 @@ static void HW101_ProcessFrame(void)
     }
 
     /*
-     * WIT Ğ­Òé£º
-     * Yaw Êı¾İÎ»ÓÚµÚ 6¡¢7 ×Ö½Ú£¬µÍ×Ö½ÚÔÚÇ°¡£
+     * WIT åè®®ï¼š
+     * Yaw æ•°æ®ä½äºç¬¬ 6ã€7 å­—èŠ‚ï¼Œä½å­—èŠ‚åœ¨å‰ã€‚
      */
     raw_yaw = (int16_t)(((uint16_t)hw101_frame[7] << 8U) |
                          (uint16_t)hw101_frame[6]);
@@ -78,13 +97,13 @@ static void HW101_ProcessFrame(void)
     decoded = hw101_latest;
 
     /*
-     * Ô­Ê¼½Ç¶È·¶Î§Ô¼Îª -32768¡«32767£¬
-     * ¶ÔÓ¦ -180¡«180 ¶È¡£
+     * åŸå§‹è§’åº¦èŒƒå›´çº¦ä¸º -32768ï½32767ï¼Œ
+     * å¯¹åº” -180ï½180 åº¦ã€‚
      */
     decoded.yaw_deg =
         ((float)raw_yaw * 180.0f) / 32768.0f;
 
-    /* ÎÂ¶ÈÔ­Ê¼Öµµ¥Î»Îª 0.01 ÉãÊÏ¶È */
+    /* æ¸©åº¦åŸå§‹å€¼å•ä½ä¸º 0.01 æ‘„æ°åº¦ */
     decoded.temperature_c =
         (float)raw_temperature / 100.0f;
 
@@ -93,17 +112,21 @@ static void HW101_ProcessFrame(void)
     decoded.valid = 1U;
 
     /*
-     * Ò»´ÎĞÔÌá½»ÍêÕûÊı¾İ£¬±ÜÃâÈÎÎñ¶ÁÈ¡µ½°ëÖ¡¡£
+     * ä¸€æ¬¡æ€§æäº¤å®Œæ•´æ•°æ®ï¼Œé¿å…ä»»åŠ¡è¯»å–åˆ°åŠå¸§ã€‚
      */
     hw101_latest = decoded;
 }
 
-/* ÊÕµ½Ò»¸ö×Ö½ÚÊ±µ÷ÓÃ */
+/*
+  å‡½æ•°è¯´æ˜: æ”¶åˆ°ä¸€ä¸ªå­—èŠ‚æ—¶è°ƒç”¨
+  è°ƒç”¨ç¤ºä¾‹: HW101_ParseByte(byte);
+  å‚æ•°æ„ä¹‰: byte ä¸ºæ–°æ”¶åˆ°çš„ä¸€ä¸ªå­—èŠ‚ã€‚
+*/
 static void HW101_ParseByte(uint8_t byte)
 {
     /*
-     * µÚÒ»¸ö×Ö½Ú±ØĞëÊÇ 0x55¡£
-     * Èç¹û²»ÊÇ£¬¾Í¼ÌĞøµÈ´ıÏÂÒ»×Ö½Ú¡£
+     * ç¬¬ä¸€ä¸ªå­—èŠ‚å¿…é¡»æ˜¯ 0x55ã€‚
+     * å¦‚æœä¸æ˜¯ï¼Œå°±ç»§ç»­ç­‰å¾…ä¸‹ä¸€å­—èŠ‚ã€‚
      */
     if (hw101_frame_index == 0U)
     {
@@ -117,7 +140,7 @@ static void HW101_ParseByte(uint8_t byte)
     hw101_frame_index++;
 
     /*
-     * ÊÕÂú 11 ×Ö½Úºó´¦Àí¡£
+     * æ”¶æ»¡ 11 å­—èŠ‚åå¤„ç†ã€‚
      */
     if (hw101_frame_index >= HW101_FRAME_LENGTH)
     {
@@ -126,7 +149,11 @@ static void HW101_ParseByte(uint8_t byte)
     }
 }
 
-/* Æô¶¯ USART2 µÄµ¥×Ö½Ú½ÓÊÕÖĞ¶Ï */
+/*
+  å‡½æ•°è¯´æ˜: å¯åŠ¨ USART2 çš„å•å­—èŠ‚æ¥æ”¶ä¸­æ–­
+  è°ƒç”¨ç¤ºä¾‹: HW101_StartReceive();
+  å‚æ•°æ„ä¹‰: æ— ã€‚
+*/
 HAL_StatusTypeDef HW101_StartReceive(void)
 {
     memset((void *)&hw101_latest, 0, sizeof(hw101_latest));
@@ -138,7 +165,11 @@ HAL_StatusTypeDef HW101_StartReceive(void)
         1U);
 }
 
-/* »ñÈ¡×î½üÒ»´ÎÓĞĞ§Êı¾İ */
+/*
+  å‡½æ•°è¯´æ˜: è·å–æœ€è¿‘ä¸€æ¬¡æœ‰æ•ˆæ•°æ®
+  è°ƒç”¨ç¤ºä¾‹: HW101_GetData(data);
+  å‚æ•°æ„ä¹‰: data ä¸ºæ•°æ®ç¼“å†²åŒºæˆ–ä¼ æ„Ÿå™¨å¿«ç…§ã€‚
+*/
 uint8_t HW101_GetData(HW101_Data_t *data)
 {
     uint32_t primask;
@@ -164,7 +195,11 @@ uint8_t HW101_GetData(HW101_Data_t *data)
     return valid;
 }
 
-/* USART2 ½ÓÊÕÍê³ÉºóµÄ´¦Àí */
+/*
+  å‡½æ•°è¯´æ˜: USART2 æ¥æ”¶å®Œæˆåçš„å¤„ç†
+  è°ƒç”¨ç¤ºä¾‹: HW101_UART_RxCpltCallback(huart);
+  å‚æ•°æ„ä¹‰: huart ä¸ºHAL UART å¥æŸ„ã€‚
+*/
 void HW101_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart != &huart2)
@@ -175,7 +210,7 @@ void HW101_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     HW101_ParseByte(hw101_rx_byte);
 
     /*
-     * ±ØĞëÖØĞÂ¿ªÆôÏÂÒ»×Ö½Ú½ÓÊÕ¡£
+     * å¿…é¡»é‡æ–°å¼€å¯ä¸‹ä¸€å­—èŠ‚æ¥æ”¶ã€‚
      */
     (void)HAL_UART_Receive_IT(
         &huart2,
@@ -183,7 +218,11 @@ void HW101_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         1U);
 }
 
-/* USART2 ³ö´íºóµÄ´¦Àí */
+/*
+  å‡½æ•°è¯´æ˜: USART2 å‡ºé”™åçš„å¤„ç†
+  è°ƒç”¨ç¤ºä¾‹: HW101_UART_ErrorCallback(huart);
+  å‚æ•°æ„ä¹‰: huart ä¸ºHAL UART å¥æŸ„ã€‚
+*/
 void HW101_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart != &huart2)

@@ -1,3 +1,10 @@
+/*
+  程序说明: 麦克纳姆底盘机械尺寸配置及车体速度到四轮 RPM 的解算。
+  软件环境: Keil MDK / ARM Compiler 5.06u7，STM32Cube HAL，FreeRTOS CMSIS-RTOS2。
+  硬件环境: STM32F407ZET6 机械臂与麦克纳姆移动平台。
+  日    期: 2026-10-23
+*/
+
 #include "chassis_mecanum.h"
 
 /*
@@ -10,14 +17,23 @@
 
 #define CHASSIS_PI                 (3.14159265358979323846f)
 #define CHASSIS_SQRT_HALF          (0.70710678118654752440f)
-#define CHASSIS_RAD_TO_DEG         (57.2957795130823208768f)
 #define CHASSIS_TWO_PI             (6.28318530717958647692f)
 
+/*
+  函数说明: 判断参与麦克纳姆解算的浮点参数是否有限。
+  调用示例: ChassisMecanum_Finite(value);
+  参数意义: value 为输入数值。
+*/
 static uint8_t ChassisMecanum_Finite(float value)
 {
     return (value == value) ? 1U : 0U;
 }
 
+/*
+  函数说明: 装载轮径、轴距、轮距和传动比等原底盘机械参数。
+  调用示例: ChassisMecanum_LoadDefaultConfig(config);
+  参数意义: config 为对应模块的配置结构。
+*/
 void ChassisMecanum_LoadDefaultConfig(ChassisMecanumConfig_t *config)
 {
     if (config == NULL)
@@ -33,6 +49,11 @@ void ChassisMecanum_LoadDefaultConfig(ChassisMecanumConfig_t *config)
     config->motor_revolutions_per_wheel_revolution = 1.0f;
 }
 
+/*
+  函数说明: 检查麦克纳姆底盘几何参数是否为合法正值。
+  调用示例: ChassisMecanum_ConfigIsValid(config);
+  参数意义: config 为对应模块的配置结构。
+*/
 uint8_t ChassisMecanum_ConfigIsValid(
     const ChassisMecanumConfig_t *config)
 {
@@ -52,6 +73,13 @@ uint8_t ChassisMecanum_ConfigIsValid(
            (config->motor_revolutions_per_wheel_revolution > 0.0f);
 }
 
+/*
+  函数说明: 把车体横向、纵向和旋转速度换算为四轮带符号逻辑 RPM。
+  调用示例: ChassisMecanum_SolveVelocity(config, body_velocity, wheel_velocity);
+  参数意义: config 为对应模块的配置结构。
+            body_velocity 为输入车体速度，平移 mm/s、转动 deg/s。
+            wheel_velocity 为输出四轮带符号转速，RPM。
+*/
 uint8_t ChassisMecanum_SolveVelocity(
     const ChassisMecanumConfig_t *config,
     const ChassisBodyVelocity_t *body_velocity,

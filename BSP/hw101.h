@@ -1,3 +1,10 @@
+/*
+  ç¨‹åºè¯´æ˜: HW101 èˆªå‘ä¼ æ„Ÿå™¨ä¸²å£æ¥æ”¶ã€æ ¡éªŒå’Œç¼“å­˜è¯»å–ã€‚ æœ¬æ–‡ä»¶å£°æ˜æ¥å£ä¸æ•°æ®ç±»å‹ã€‚
+  è½¯ä»¶ç¯å¢ƒ: Keil MDK / ARM Compiler 5.06u7ï¼ŒSTM32Cube HALï¼ŒFreeRTOS CMSIS-RTOS2ã€‚
+  ç¡¬ä»¶ç¯å¢ƒ: STM32F407ZET6 æœºæ¢°è‡‚ä¸éº¦å…‹çº³å§†ç§»åŠ¨å¹³å°ã€‚
+  æ—¥    æœŸ: 2026-10-23
+*/
+
 #ifndef HW101_H
 #define HW101_H
 
@@ -8,33 +15,47 @@ extern "C" {
 #include "main.h"
 #include <stdint.h>
 
-/* HW101 ½Ç¶ÈÖ¡³¤¶È */
+/* HW101 è§’åº¦å¸§é•¿åº¦ */
 #define HW101_FRAME_LENGTH    (11U)
 
-/* HW101 ×î½üÒ»´Î½Ç¶ÈÊı¾İ */
+/* HW101 æœ€è¿‘ä¸€æ¬¡è§’åº¦æ•°æ® */
 typedef struct
 {
-    float yaw_deg;              /* º½Ïò½Ç£¬µ¥Î»£º¶È */
-    float temperature_c;        /* ÎÂ¶È£¬µ¥Î»£ºÉãÊÏ¶È */
+    float yaw_deg;              /* èˆªå‘è§’ï¼Œå•ä½ï¼šåº¦ */
+    float temperature_c;        /* æ¸©åº¦ï¼Œå•ä½ï¼šæ‘„æ°åº¦ */
 
-    uint32_t last_update_ms;    /* ×î½üÒ»´ÎÓĞĞ§Êı¾İÊ±¼ä */
-    uint32_t frame_count;       /* ÓĞĞ§½Ç¶ÈÖ¡ÊıÁ¿ */
-    uint32_t bad_frame_count;   /* Ğ£Ñé´íÎóÖ¡ÊıÁ¿ */
+    uint32_t last_update_ms;    /* æœ€è¿‘ä¸€æ¬¡æœ‰æ•ˆæ•°æ®æ—¶é—´ */
+    uint32_t frame_count;       /* æœ‰æ•ˆè§’åº¦å¸§æ•°é‡ */
+    uint32_t bad_frame_count;   /* æ ¡éªŒé”™è¯¯å¸§æ•°é‡ */
 
-    uint8_t valid;              /* 1£ºÒÑ¾­ÊÕµ½ÓĞĞ§½Ç¶ÈÖ¡ */
+    uint8_t valid;              /* 1ï¼šå·²ç»æ”¶åˆ°æœ‰æ•ˆè§’åº¦å¸§ */
 } HW101_Data_t;
 
-/* Æô¶¯ USART2 µ¥×Ö½Ú½ÓÊÕÖĞ¶Ï */
+/*
+  å‡½æ•°è¯´æ˜: å¯åŠ¨ USART2 çš„å•å­—èŠ‚æ¥æ”¶ä¸­æ–­
+  è°ƒç”¨ç¤ºä¾‹: HW101_StartReceive();
+  å‚æ•°æ„ä¹‰: æ— ã€‚
+*/
 HAL_StatusTypeDef HW101_StartReceive(void);
 
-/* ¶ÁÈ¡×î½üÒ»´ÎÓĞĞ§Êı¾İ */
+/*
+  å‡½æ•°è¯´æ˜: è·å–æœ€è¿‘ä¸€æ¬¡æœ‰æ•ˆæ•°æ®
+  è°ƒç”¨ç¤ºä¾‹: HW101_GetData(data);
+  å‚æ•°æ„ä¹‰: data ä¸ºæ•°æ®ç¼“å†²åŒºæˆ–ä¼ æ„Ÿå™¨å¿«ç…§ã€‚
+*/
 uint8_t HW101_GetData(HW101_Data_t *data);
 
 /*
- * ÕâÁ½¸öº¯ÊıÓÉ¹¤³ÌÖĞµÄÍ³Ò» HAL UART »Øµ÷µ÷ÓÃ¡£
- * ²»ÒªÔÚ hw101.c ÖĞÔÙ´Î¶¨Òå HAL_UART_RxCpltCallback¡£
- */
+  å‡½æ•°è¯´æ˜: USART2 æ¥æ”¶å®Œæˆåçš„å¤„ç†
+  è°ƒç”¨ç¤ºä¾‹: HW101_UART_RxCpltCallback(huart);
+  å‚æ•°æ„ä¹‰: huart ä¸ºHAL UART å¥æŸ„ã€‚
+*/
 void HW101_UART_RxCpltCallback(UART_HandleTypeDef *huart);
+/*
+  å‡½æ•°è¯´æ˜: USART2 å‡ºé”™åçš„å¤„ç†
+  è°ƒç”¨ç¤ºä¾‹: HW101_UART_ErrorCallback(huart);
+  å‚æ•°æ„ä¹‰: huart ä¸ºHAL UART å¥æŸ„ã€‚
+*/
 void HW101_UART_ErrorCallback(UART_HandleTypeDef *huart);
 
 #ifdef __cplusplus

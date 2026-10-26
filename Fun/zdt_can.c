@@ -1,3 +1,10 @@
+/*
+  程序说明: CAN 初始化、完整命令互斥发送、接收队列及错误统计。
+  软件环境: Keil MDK / ARM Compiler 5.06u7，STM32Cube HAL，FreeRTOS CMSIS-RTOS2。
+  硬件环境: STM32F407ZET6 机械臂与麦克纳姆移动平台。
+  日    期: 2026-10-23
+*/
+
 #include "zdt_can.h"
 #include "can.h"
 #include <string.h>
@@ -5,9 +12,8 @@
 #define ZDT_CAN_TX_TIMEOUT_MS    20U
 #define ZDT_CAN_RX_QUEUE_DEPTH   32U
 
-/* 机械臂和底盘分别使用接收队列，发送端共用一个互斥锁。 */
+/* 机械臂反馈使用接收队列；底盘不消费轮电机反馈，发送端共用互斥锁。 */
 static osMessageQueueId_t zdt_can_rx_queue = NULL;
-static osMessageQueueId_t zdt_can_chassis_rx_queue = NULL;
 static osMutexId_t zdt_can_tx_mutex = NULL;
 static volatile uint8_t zdt_can_initialized = 0U;
 
@@ -15,10 +21,14 @@ volatile uint32_t zdt_can_tx_count = 0;
 volatile uint32_t zdt_can_tx_error_count = 0;
 volatile uint32_t zdt_can_rx_count = 0;
 volatile uint32_t zdt_can_rx_drop_count = 0;
-volatile uint32_t zdt_can_chassis_rx_drop_count = 0;
 volatile uint32_t zdt_can_error_count = 0;
 volatile ZDT_CanRxFrame_t zdt_can_last_rx = {0};
 
+/*
+  函数说明: 在调度器运行时让出 1 ms，启动阶段使用 HAL 延时。
+  调用示例: ZDT_CAN_Delay1ms();
+  参数意义: 无。
+*/
 static void ZDT_CAN_Delay1ms(void)
 {
     if (osKernelGetState() == osKernelRunning)
@@ -31,6 +41,11 @@ static void ZDT_CAN_Delay1ms(void)
     }
 }
 
+/*
+  函数说明: 配置 CAN 过滤器、发送互斥锁与接收队列，并启动 CAN 通知。
+  调用示例: ZDT_CAN_Init();
+  参数意义: 无。
+*/
 HAL_StatusTypeDef ZDT_CAN_Init(void)
 {
     CAN_FilterTypeDef filter = {0};
@@ -49,19 +64,6 @@ HAL_StatusTypeDef ZDT_CAN_Init(void)
                               NULL);
 
         if (zdt_can_rx_queue == NULL)
-        {
-            return HAL_ERROR;
-        }
-    }
-
-    if (zdt_can_chassis_rx_queue == NULL)
-    {
-        zdt_can_chassis_rx_queue =
-            osMessageQueueNew(ZDT_CAN_RX_QUEUE_DEPTH,
-                              sizeof(ZDT_CanRxFrame_t),
-                              NULL);
-
-        if (zdt_can_chassis_rx_queue == NULL)
         {
             return HAL_ERROR;
         }
@@ -115,6 +117,13 @@ HAL_StatusTypeDef ZDT_CAN_Init(void)
     return HAL_OK;
 }
 
+/*
+  函数说明: 在有限等待内提交一帧 CAN 扩展帧，并检查发送结果。
+  调用示例: ZDT_CAN_SendFrame(ext_id, data, dlc);
+  参数意义: ext_id 为CAN 扩展标识符。
+            data 为数据缓冲区或传感器快照。
+            dlc 为CAN 数据区字节数。
+*/
 static HAL_StatusTypeDef ZDT_CAN_SendFrame(
     uint32_t ext_id,
     const uint8_t *data,
@@ -175,6 +184,12 @@ static HAL_StatusTypeDef ZDT_CAN_SendFrame(
     return HAL_OK;
 }
 
+/*
+  函数说明: 按驱动器扩展帧格式拆包发送；调用者须已持有发送互斥锁。
+  调用示例: ZDT_CAN_SendCmdUnlocked(cmd, len);
+  参数意义: cmd 为驱动器协议字节数组。
+            len 为输入字节数。
+*/
 static HAL_StatusTypeDef ZDT_CAN_SendCmdUnlocked(
     const uint8_t *cmd,
     uint8_t len)
@@ -233,6 +248,12 @@ static HAL_StatusTypeDef ZDT_CAN_SendCmdUnlocked(
     return HAL_OK;
 }
 
+/*
+  函数说明: 用互斥锁保护一整条驱动器命令，避免不同任务的 CAN 分帧交错。
+  调用示例: can_SendCmd(cmd, len);
+  参数意义: cmd 为驱动器协议字节数组。
+            len 为输入字节数。
+*/
 HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len)
 {
     HAL_StatusTypeDef status;
@@ -261,6 +282,11 @@ HAL_StatusTypeDef can_SendCmd(const uint8_t *cmd, uint8_t len)
     return status;
 }
 
+/*
+  函数说明: 在 CAN 接收中断中取帧、核验格式并投递接收队列。
+  调用示例: HAL_CAN_RxFifo0MsgPendingCallback(hcan);
+  参数意义: hcan 为HAL CAN 句柄。
+*/
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
     CAN_RxHeaderTypeDef header;
@@ -312,18 +338,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 
             if ((address >= 5U) && (address <= 8U))
             {
-                /* 底盘地址 5~8 只进入底盘队列。 */
-                if (zdt_can_chassis_rx_queue != NULL)
-                {
-                    if (osMessageQueuePut(
-                            zdt_can_chassis_rx_queue,
-                            &frame,
-                            0,
-                            0) != osOK)
-                    {
-                        ++zdt_can_chassis_rx_drop_count;
-                    }
-                }
+                /* 底盘闭环用 OPS9/HW101；这些回复不占机械臂队列。 */
+                continue;
             }
             else if (zdt_can_rx_queue != NULL)
             {
@@ -352,6 +368,11 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
     }
 }
 
+/*
+  函数说明: 记录 CAN 错误中断计数与最近错误码。
+  调用示例: HAL_CAN_ErrorCallback(hcan);
+  参数意义: hcan 为HAL CAN 句柄。
+*/
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
 {
     if (hcan->Instance == CAN1)
@@ -360,6 +381,12 @@ void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
     }
 }
 
+/*
+  函数说明: 从 CAN 接收队列取一帧；按指定 RTOS tick 时限等待。
+  调用示例: ZDT_CAN_GetRx(frame, timeout_ticks);
+  参数意义: frame 为CAN 接收帧结构。
+            timeout_ticks 为队列等待时间，RTOS tick。
+*/
 osStatus_t ZDT_CAN_GetRx(
     ZDT_CanRxFrame_t *frame,
     uint32_t timeout_ticks)
@@ -376,22 +403,11 @@ osStatus_t ZDT_CAN_GetRx(
         timeout_ticks);
 }
 
-osStatus_t ZDT_CAN_GetChassisRx(
-    ZDT_CanRxFrame_t *frame,
-    uint32_t timeout_ticks)
-{
-    if ((frame == NULL) || (zdt_can_chassis_rx_queue == NULL))
-    {
-        return osErrorParameter;
-    }
-
-    return osMessageQueueGet(
-        zdt_can_chassis_rx_queue,
-        frame,
-        NULL,
-        timeout_ticks);
-}
-
+/*
+  函数说明: 丢弃接收队列中的旧帧并返回丢弃数量。
+  调用示例: ZDT_CAN_FlushRx();
+  参数意义: 无。
+*/
 uint32_t ZDT_CAN_FlushRx(void)
 {
     ZDT_CanRxFrame_t frame;

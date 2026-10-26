@@ -1,3 +1,10 @@
+/*
+  程序说明: 机械臂几何模型、臂长配置、正运动学、逆运动学与限位校验。
+  软件环境: Keil MDK / ARM Compiler 5.06u7，STM32Cube HAL，FreeRTOS CMSIS-RTOS2。
+  硬件环境: STM32F407ZET6 机械臂与麦克纳姆移动平台。
+  日    期: 2026-10-23
+*/
+
 #include "arm_kinematics.h"
 
 #include <math.h>
@@ -10,11 +17,21 @@
 #define ARM_NUMERIC_EPSILON_F    (1.0e-5f)
 #define ARM_LIMIT_EPSILON_DEG_F  (1.0e-3f)
 
+/*
+  函数说明: 判断浮点值是否有限，拒绝 NaN 和无穷。
+  调用示例: ArmIk_IsFinite(value);
+  参数意义: value 为输入数值。
+*/
 static int ArmIk_IsFinite(float value)
 {
     return isfinite(value) ? 1 : 0;
 }
 
+/*
+  函数说明: 校验单个关节的上下限配置。
+  调用示例: ArmIk_LimitConfigIsValid(limit);
+  参数意义: limit 为限幅值或关节限位配置。
+*/
 static int ArmIk_LimitConfigIsValid(const ArmJointLimit *limit)
 {
     if ((limit->min_enabled > 1U) || (limit->max_enabled > 1U) ||
@@ -34,6 +51,11 @@ static int ArmIk_LimitConfigIsValid(const ArmJointLimit *limit)
     return 1;
 }
 
+/*
+  函数说明: 校验臂长、末端偏置和全部关节限位配置。
+  调用示例: ArmIk_ConfigIsValid(config);
+  参数意义: config 为对应模块的配置结构。
+*/
 static int ArmIk_ConfigIsValid(const ArmIkConfig *config)
 {
     if ((config == NULL) ||
@@ -54,6 +76,12 @@ static int ArmIk_ConfigIsValid(const ArmIkConfig *config)
            ArmIk_LimitConfigIsValid(&config->gamma_limit);
 }
 
+/*
+  函数说明: 检查一个关节角是否在启用的机械限位范围内。
+  调用示例: ArmIk_JointWithinLimit(value, limit);
+  参数意义: value 为输入数值。
+            limit 为限幅值或关节限位配置。
+*/
 static int ArmIk_JointWithinLimit(float value, const ArmJointLimit *limit)
 {
     if ((limit->min_enabled != 0U) &&
@@ -70,6 +98,11 @@ static int ArmIk_JointWithinLimit(float value, const ArmJointLimit *limit)
     return 1;
 }
 
+/*
+  函数说明: 将弧度角归一化到主值区间，避免等价角重复。
+  调用示例: ArmIk_NormalizeRadians(angle);
+  参数意义: angle 为待归一化的弧度角。
+*/
 static float ArmIk_NormalizeRadians(float angle)
 {
     while (angle > ARM_PI_F)
@@ -83,6 +116,11 @@ static float ArmIk_NormalizeRadians(float angle)
     return angle;
 }
 
+/*
+  函数说明: 装载原机械臂臂长、末端偏置和关节限位。
+  调用示例: ArmIk_LoadDefaultConfig(config);
+  参数意义: config 为对应模块的配置结构。
+*/
 void ArmIk_LoadDefaultConfig(ArmIkConfig *config)
 {
     if (config == NULL)
@@ -91,7 +129,7 @@ void ArmIk_LoadDefaultConfig(ArmIkConfig *config)
     }
 
     memset(config, 0, sizeof(*config));
-    config->oa_mm = 150.1f;
+    config->oa_mm = 180.1f;
     config->ab_mm = 150.0f;
     config->bc_mm = 240.0f;
     config->cd1_mm = 85.0f;
@@ -115,6 +153,12 @@ void ArmIk_LoadDefaultConfig(ArmIkConfig *config)
     config->gamma_limit.max_enabled = 1U;
 }
 
+/*
+  函数说明: 检查三个几何关节角是否有限且处于机械限位内。
+  调用示例: ArmIk_ValidateJoints(config, joints);
+  参数意义: config 为对应模块的配置结构。
+            joints 为三个几何关节角，度。
+*/
 ArmIkStatus ArmIk_ValidateJoints(const ArmIkConfig *config,
                                  const ArmJointAngles *joints)
 {
@@ -146,6 +190,15 @@ ArmIkStatus ArmIk_ValidateJoints(const ArmIkConfig *config,
     return ARM_IK_OK;
 }
 
+/*
+  函数说明: 对给定有符号径向位置求平面两连杆逆解并校验限位。
+  调用示例: ArmIk_SolveCandidate(config, signed_radial_mm, wrist_z_mm, alpha_rad, result);
+  参数意义: config 为对应模块的配置结构。
+            signed_radial_mm 为带分支符号的水平径向距离，mm。
+            wrist_z_mm 为扣除末端偏置后的腕部高度，mm。
+            alpha_rad 为底座几何角，弧度。
+            result 为输出计算结果。
+*/
 static ArmIkStatus ArmIk_SolveCandidate(const ArmIkConfig *config,
                                         float signed_radial_mm,
                                         float wrist_z_mm,
@@ -207,6 +260,15 @@ static ArmIkStatus ArmIk_SolveCandidate(const ArmIkConfig *config,
     return ArmIk_ValidateJoints(config, result);
 }
 
+/*
+  函数说明: 按默认正径向分支求机械臂基坐标系 XYZ 对应的三个关节角。
+  调用示例: ArmIk_Solve(config, x_mm, y_mm, z_mm, result);
+  参数意义: config 为对应模块的配置结构。
+            x_mm 为机械臂基坐标系 X 坐标，mm。
+            y_mm 为机械臂基坐标系 Y 坐标，mm。
+            z_mm 为机械臂基坐标系 Z 坐标，mm。
+            result 为输出计算结果。
+*/
 ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
                         float x_mm,
                         float y_mm,
@@ -221,6 +283,16 @@ ArmIkStatus ArmIk_Solve(const ArmIkConfig *config,
                              result);
 }
 
+/*
+  函数说明: 按明确指定的径向分支求逆解；不可达、奇异或超限时返回错误。
+  调用示例: ArmIk_SolveBranch(config, x_mm, y_mm, z_mm, branch, result);
+  参数意义: config 为对应模块的配置结构。
+            x_mm 为机械臂基坐标系 X 坐标，mm。
+            y_mm 为机械臂基坐标系 Y 坐标，mm。
+            z_mm 为机械臂基坐标系 Z 坐标，mm。
+            branch 为逆解径向分支。
+            result 为输出计算结果。
+*/
 ArmIkStatus ArmIk_SolveBranch(const ArmIkConfig *config,
                               float x_mm,
                               float y_mm,
@@ -264,6 +336,13 @@ ArmIkStatus ArmIk_SolveBranch(const ArmIkConfig *config,
                                 result);
 }
 
+/*
+  函数说明: 由三个几何关节角计算末端 XYZ 坐标。
+  调用示例: ArmIk_Forward(config, joints, result);
+  参数意义: config 为对应模块的配置结构。
+            joints 为三个几何关节角，度。
+            result 为输出计算结果。
+*/
 ArmIkStatus ArmIk_Forward(const ArmIkConfig *config,
                           const ArmJointAngles *joints,
                           ArmCartesianPosition *result)
@@ -311,6 +390,11 @@ ArmIkStatus ArmIk_Forward(const ArmIkConfig *config,
     return ARM_IK_OK;
 }
 
+/*
+  函数说明: 把运动学状态码转换为只读诊断字符串。
+  调用示例: ArmIk_StatusString(status);
+  参数意义: status 为状态码或驱动器诊断快照。
+*/
 const char *ArmIk_StatusString(ArmIkStatus status)
 {
     switch (status)

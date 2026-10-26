@@ -1,82 +1,146 @@
+/*
+  程序说明: FashionStar 单总线夹爪舵机，发送单圈绝对角度并使用极速模式，不读取反馈。
+  软件环境: Keil MDK / ARM Compiler 5.06u7，STM32Cube HAL，FreeRTOS CMSIS-RTOS2。
+  硬件环境: STM32F407ZET6；PB10/USART3_TX 接舵机总线，PD9/USART3_RX 接 OPS9。
+  日    期: 2026-10-25
+*/
+
 #include "claw.h"
 
 #include <math.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+#include "cmsis_os2.h"
 #include "usart.h"
 
-/* 默认使用示例中的 ID 000；这里不发送修改 ID 或舵机模式的指令。 */
-#define CLAW_SERVO_ID                 (0U)
-
-/* 270° 模式的完整角度与协议位置映射，修改夹爪限位时不要动这组映射。 */
-#define CLAW_FULL_MIN_DEG            (0.0f)
-#define CLAW_FULL_MAX_DEG            (270.0f)
-#define CLAW_POSITION_MIN            (500U)
-#define CLAW_POSITION_MAX            (2500U)
-
-/* 夹爪软件允许范围；当前仅按协议全范围填写，实机标定后应收窄。 */
-#define CLAW_ALLOWED_MIN_DEG         (0.0f)
-#define CLAW_ALLOWED_MAX_DEG         (270.0f)
-
-/* 装配方向相反时改为 1；不会改变舵机固件中的旋转模式。 */
-#define CLAW_REVERSE_ANGLE           (0U)
-
-/* T 字段为四位十进制毫秒数；禁止 0，避免未确认的瞬时动作。 */
-#define CLAW_TIME_MIN_MS             (1U)
-#define CLAW_TIME_MAX_MS             (9999U)
+#define CLAW_COMMAND_SET_ANGLE       (0x08U)
+#define CLAW_COMMAND_CONTENT_SIZE    (7U)
+#define CLAW_COMMAND_FRAME_SIZE      (12U)
 #define CLAW_UART_TX_TIMEOUT_MS      (50U)
+#define CLAW_BUS_GAP_MS              (5U)
 
-/* 把 0～9999 写入四位 ASCII 字段；报文不需要字符串结尾的 \0。 */
-static void Claw_WriteFourDigits(uint8_t *destination, uint16_t value)
+/* 仅保护本驱动的发送过程；其他模块不能直接向 USART3 写入调试文本等数据。 */
+static uint8_t claw_tx_busy;
+static uint8_t claw_last_tx_valid;
+static uint32_t claw_last_tx_end_ms;
+
+/*
+  函数说明: 仅切换 PB10 的驱动状态；不重新初始化 USART3，不影响 PD9 接收 OPS9。
+  参数意义: transmitting 非零时使用 USART3 复用推挽发送，零时切为输入高阻。
+  单总线舵机可能在执行指令后自行应答，即使不读取应答，也要释放总线。
+*/
+static void Claw_SetTxPin(uint8_t transmitting)
 {
-    destination[0] = (uint8_t)('0' + ((value / 1000U) % 10U));
-    destination[1] = (uint8_t)('0' + ((value / 100U) % 10U));
-    destination[2] = (uint8_t)('0' + ((value / 10U) % 10U));
-    destination[3] = (uint8_t)('0' + (value % 10U));
+    GPIO_InitTypeDef gpio = {0};
+
+    gpio.Pin = GPIO_PIN_10;
+    gpio.Mode = (transmitting != 0U) ? GPIO_MODE_AF_PP : GPIO_MODE_INPUT;
+    gpio.Pull = GPIO_NOPULL;
+    gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    gpio.Alternate = GPIO_AF7_USART3;
+    HAL_GPIO_Init(GPIOB, &gpio);
 }
 
-HAL_StatusTypeDef Claw_SetAngle(float angle_deg, uint16_t move_time_ms)
+/* 协议的两字节数据均为小端，与上位机 USART6 的大端字段分别处理。 */
+static void Claw_WriteU16(uint8_t *destination, uint16_t value)
 {
-    uint8_t frame[15];
-    float position_float;
-    uint16_t position;
+    destination[0] = (uint8_t)value;
+    destination[1] = (uint8_t)(value >> 8U);
+}
 
-    /* 参数不合法时不发指令，不能把角度自动钳到未知的机械端点。 */
+/*
+  函数说明: 发出 0x08 单圈角度指令，时间字段固定为 0，使用舵机极速模式。
+            发送完成后立即返回，不等待舵机运动结束。
+  参数意义: angle_deg 为相对舵机内部零位的绝对角度，范围 -180～180 度。
+  调用示例: Claw_SetAngle(90.0f);
+  对应报文: 12 4C 08 07 00 84 03 00 00 00 00 F4（ID 0，90 度，极速模式）。
+*/
+HAL_StatusTypeDef Claw_SetAngle(float angle_deg)
+{
+    uint8_t frame[CLAW_COMMAND_FRAME_SIZE];
+    uint8_t index;
+    uint8_t checksum = 0U;
+    float raw_angle;
+    int16_t position;
+    HAL_StatusTypeDef status;
+
+    /* 参数错误时拒绝发令，不静默夹紧到另一角度；中断中也不允许等待串口。 */
     if (!isfinite(angle_deg) ||
-        (angle_deg < CLAW_FULL_MIN_DEG) ||
-        (angle_deg > CLAW_FULL_MAX_DEG) ||
-        (angle_deg < CLAW_ALLOWED_MIN_DEG) ||
-        (angle_deg > CLAW_ALLOWED_MAX_DEG) ||
-        (move_time_ms < CLAW_TIME_MIN_MS) ||
-        (move_time_ms > CLAW_TIME_MAX_MS))
+        (angle_deg < CLAW_MIN_ANGLE_DEG) ||
+        (angle_deg > CLAW_MAX_ANGLE_DEG) ||
+        (__get_IPSR() != 0U))
+    {
+        return HAL_ERROR;
+    }
+    if ((huart3.Instance != USART3) ||
+        (huart3.Init.BaudRate != CLAW_UART_BAUDRATE))
     {
         return HAL_ERROR;
     }
 
-    position_float = (float)CLAW_POSITION_MIN +
-        (angle_deg - CLAW_FULL_MIN_DEG) *
-        ((float)(CLAW_POSITION_MAX - CLAW_POSITION_MIN) /
-         (CLAW_FULL_MAX_DEG - CLAW_FULL_MIN_DEG));
-    if (CLAW_REVERSE_ANGLE != 0U)
+    /* 短临界区只领取发送权，不在关中断期间发送整帧或等待运动。 */
+    taskENTER_CRITICAL();
+    if (claw_tx_busy != 0U)
     {
-        position_float = (float)(CLAW_POSITION_MIN + CLAW_POSITION_MAX) -
-                         position_float;
+        taskEXIT_CRITICAL();
+        return HAL_BUSY;
     }
-    position = (uint16_t)(position_float + 0.5f);
+    claw_tx_busy = 1U;
+    taskEXIT_CRITICAL();
 
-    /* 舵机协议：#000P1500T1000!，ID/P/T 均为固定宽度十进制字段。 */
-    frame[0] = (uint8_t)'#';
-    frame[1] = (uint8_t)('0' + ((CLAW_SERVO_ID / 100U) % 10U));
-    frame[2] = (uint8_t)('0' + ((CLAW_SERVO_ID / 10U) % 10U));
-    frame[3] = (uint8_t)('0' + (CLAW_SERVO_ID % 10U));
-    frame[4] = (uint8_t)'P';
-    Claw_WriteFourDigits(&frame[5], position);
-    frame[9] = (uint8_t)'T';
-    Claw_WriteFourDigits(&frame[10], move_time_ms);
-    frame[14] = (uint8_t)'!';
+    /* 舵机可能回显上一条写命令，帧间先让出总线；毫秒计数回绕仍可正常相减。 */
+    while ((claw_last_tx_valid != 0U) &&
+           ((uint32_t)(HAL_GetTick() - claw_last_tx_end_ms) < CLAW_BUS_GAP_MS))
+    {
+        if (osKernelGetState() == osKernelRunning)
+        {
+            (void)osDelay(1U);
+        }
+        else
+        {
+            HAL_Delay(1U);
+        }
+    }
 
-    /* 只有 TX 线：不能根据返回值判断夹爪真实角度或是否夹住物体。 */
-    return HAL_UART_Transmit(&huart4,
-                             frame,
-                             (uint16_t)sizeof(frame),
-                             CLAW_UART_TX_TIMEOUT_MS);
+    /* 角度直接乘 10，按最近的 0.1 度编码；负角度使用 int16 二进制补码。 */
+    raw_angle = angle_deg * 10.0f;
+    position = (int16_t)((raw_angle >= 0.0f) ?
+                        (raw_angle + 0.5f) : (raw_angle - 0.5f));
+    frame[0] = 0x12U;
+    frame[1] = 0x4CU;
+    frame[2] = CLAW_COMMAND_SET_ANGLE;
+    frame[3] = CLAW_COMMAND_CONTENT_SIZE;
+    frame[4] = CLAW_SERVO_ID;
+    Claw_WriteU16(&frame[5], (uint16_t)position);
+    /* FashionStar 官方 SDK 的 0x08 指令以 interval=0 请求极速运动。 */
+    Claw_WriteU16(&frame[7], 0U);
+    /* 功率字段为 0：按舵机已保存的功率保护阈值执行，不改写舵机参数。 */
+    Claw_WriteU16(&frame[9], 0U);
+    for (index = 0U; index < CLAW_COMMAND_FRAME_SIZE - 1U; ++index)
+    {
+        checksum = (uint8_t)(checksum + frame[index]);
+    }
+    frame[CLAW_COMMAND_FRAME_SIZE - 1U] = checksum;
+
+    /* USART3 的接收和发送状态独立；不终止 OPS9 接收，也不切换硬件半双工模式。 */
+    if (huart3.gState != HAL_UART_STATE_READY)
+    {
+        status = HAL_BUSY;
+    }
+    else
+    {
+        Claw_SetTxPin(1U);
+        status = HAL_UART_Transmit(&huart3, frame, (uint16_t)sizeof(frame),
+                                   CLAW_UART_TX_TIMEOUT_MS);
+        /* HAL_OK 已等到 TC，即最后停止位发完；错误/超时也释放 PB10，避免占线。 */
+        Claw_SetTxPin(0U);
+        claw_last_tx_end_ms = HAL_GetTick();
+        claw_last_tx_valid = 1U;
+    }
+
+    taskENTER_CRITICAL();
+    claw_tx_busy = 0U;
+    taskEXIT_CRITICAL();
+    return status;
 }
